@@ -1,0 +1,11 @@
+[package]
+name = "bfrs"
+version = "0.1.0"
+authors = ["Thalia Archibald <thalia@archibald.dev>"]
+edition = "2021"
+description = "An optimizing compiler for Brainfuck"
+license = "MPL-2.0"
+keywords = ["brainfuck", "compiler"]
+categories = ["compilers"]
+
+[dependencies]
