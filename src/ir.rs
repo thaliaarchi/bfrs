@@ -26,8 +26,7 @@ pub struct AbstractMemory {
 /// Abstract model of a cell.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AbstractCell {
-    /// Copy the value of a cell from before this basic block. Offsets are
-    /// relative to the index of the cell.
+    /// Copy the value of a cell from before this basic block.
     Copy { offset: isize },
     /// A constant value.
     Const { value: u8 },
@@ -107,12 +106,19 @@ impl AbstractMemory {
             let n = index.unsigned_abs();
             self.start_index += n;
             self.memory.reserve(n);
-            for _ in 0..n {
-                self.memory.push_front(AbstractCell::Copy { offset: 0 });
+            for i in 0..n {
+                self.memory.push_front(AbstractCell::Copy {
+                    offset: self.offset + i as isize,
+                });
             }
         } else if index as usize >= self.memory.len() {
-            self.memory
-                .resize(index as usize + 1, AbstractCell::Copy { offset: 0 });
+            let n = self.memory.len() - index as usize + 1;
+            self.memory.reserve(n);
+            for i in 0..n {
+                self.memory.push_back(AbstractCell::Copy {
+                    offset: self.offset + i as isize,
+                });
+            }
         }
         &mut self.memory[(self.start_index as isize + self.offset) as usize]
     }
@@ -130,7 +136,7 @@ impl AbstractCell {
                 return;
             }
             _ => {
-                let lhs = mem::replace(self, AbstractCell::Copy { offset: 0 });
+                let lhs = mem::replace(self, AbstractCell::Copy { offset: isize::MAX });
                 *self = AbstractCell::Add {
                     lhs: Box::new(lhs),
                     rhs: Box::new(AbstractCell::Const { value: rhs }),
@@ -168,7 +174,7 @@ mod tests {
             AbstractMemory {
                 memory: VecDeque::from([
                     AbstractCell::Add {
-                        lhs: Box::new(AbstractCell::Copy { offset: 0 }),
+                        lhs: Box::new(AbstractCell::Copy { offset: -1 }),
                         rhs: Box::new(AbstractCell::Const { value: 255 }),
                     },
                     AbstractCell::Input { id: 0 },
