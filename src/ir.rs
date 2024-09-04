@@ -9,10 +9,12 @@ pub struct AbstractMemory {
     memory: VecDeque<AbstractCell>,
     /// A sequence of effects in a basic block.
     effects: Vec<Effect>,
-    /// The index in `memory` of the current cell.
-    index: isize,
-    /// The absolute offset in the full memory of `memory[0]`.
-    start_offset: isize,
+    /// The index in `memory` of the initial cell at the start of this basic
+    /// block.
+    start_index: usize,
+    /// The offset of the current cell relative to the initial cell of this
+    /// basic block.
+    offset: isize,
     /// The minimum shift left that has been guarded.
     guarded_left: isize,
     /// The maximum shift right that has been guarded.
@@ -55,8 +57,8 @@ impl AbstractMemory {
         AbstractMemory {
             memory: VecDeque::new(),
             effects: Vec::new(),
-            index: 0,
-            start_offset: 0,
+            start_index: 0,
+            offset: 0,
             guarded_left: 0,
             guarded_right: 0,
             inputs: 0,
@@ -67,20 +69,18 @@ impl AbstractMemory {
     pub fn apply(&mut self, op: &Ast) {
         match op {
             Ast::Right => {
-                self.index += 1;
-                let offset = self.offset();
-                if offset > self.guarded_right {
-                    self.guarded_right = offset;
+                self.offset += 1;
+                if self.offset > self.guarded_right {
+                    self.guarded_right = self.offset;
                     self.effects.push(Effect::GuardShift {
                         offset: self.guarded_right,
                     });
                 }
             }
             Ast::Left => {
-                self.index -= 1;
-                let offset = self.offset();
-                if offset < self.guarded_left {
-                    self.guarded_left = offset;
+                self.offset -= 1;
+                if self.offset < self.guarded_left {
+                    self.guarded_left = self.offset;
                     self.effects.push(Effect::GuardShift {
                         offset: self.guarded_left,
                     });
@@ -102,22 +102,19 @@ impl AbstractMemory {
     }
 
     fn cell_mut(&mut self) -> &mut AbstractCell {
-        if self.index < 0 {
-            let n = self.index.unsigned_abs();
-            self.index = 0;
+        let index = self.start_index as isize + self.offset;
+        if index < 0 {
+            let n = index.unsigned_abs();
+            self.start_index += n;
             self.memory.reserve(n);
             for _ in 0..n {
                 self.memory.push_front(AbstractCell::Copy { offset: 0 });
             }
-        } else if self.index as usize >= self.memory.len() {
+        } else if index as usize >= self.memory.len() {
             self.memory
-                .resize(self.index as usize + 1, AbstractCell::Copy { offset: 0 });
+                .resize(index as usize + 1, AbstractCell::Copy { offset: 0 });
         }
-        &mut self.memory[self.index as usize]
-    }
-
-    fn offset(&self) -> isize {
-        self.start_offset + self.index
+        &mut self.memory[(self.start_index as isize + self.offset) as usize]
     }
 }
 
@@ -158,9 +155,9 @@ mod tests {
         mem.apply(&Ast::Inc);
         mem.apply(&Ast::Inc);
         mem.apply(&Ast::Right);
+        mem.apply(&Ast::Left);
+        mem.apply(&Ast::Left);
         mem.apply(&Ast::Dec);
-        mem.apply(&Ast::Left);
-        mem.apply(&Ast::Left);
         mem.apply(&Ast::Right);
         mem.apply(&Ast::Output);
         mem.apply(&Ast::Input);
@@ -170,11 +167,11 @@ mod tests {
             mem,
             AbstractMemory {
                 memory: VecDeque::from([
-                    AbstractCell::Input { id: 0 },
                     AbstractCell::Add {
                         lhs: Box::new(AbstractCell::Copy { offset: 0 }),
                         rhs: Box::new(AbstractCell::Const { value: 255 }),
                     },
+                    AbstractCell::Input { id: 0 },
                 ]),
                 effects: vec![
                     Effect::GuardShift { offset: 1 },
@@ -188,8 +185,8 @@ mod tests {
                     Effect::Input { id: 0 },
                     Effect::GuardShift { offset: 2 },
                 ],
-                index: 2,
-                start_offset: 0,
+                start_index: 1,
+                offset: 2,
                 guarded_left: -1,
                 guarded_right: 2,
                 inputs: 1,
