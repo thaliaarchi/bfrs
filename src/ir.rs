@@ -115,11 +115,10 @@ impl Ir {
                                             Value::Copy(_) | Value::Const(_) => {}
                                             Value::Add(_, rhs) => {
                                                 let rhs1 = mem::take(rhs.as_mut());
-                                                *rhs = Box::new(Value::Mul(
+                                                *rhs = Box::new(Value::mul(
                                                     Box::new(rhs1),
                                                     Box::new(Value::Copy(0)),
                                                 ));
-                                                rhs.simplify();
                                             }
                                             Value::Input { .. } | Value::Mul(..) => {
                                                 unreachable!()
@@ -203,8 +202,8 @@ impl BasicBlock {
                     self.effects.push(Effect::GuardShift(self.guarded_left));
                 }
             }
-            Ast::Inc => self.cell_mut().add(1),
-            Ast::Dec => self.cell_mut().add(255),
+            Ast::Inc => self.cell_mut().add_const(1),
+            Ast::Dec => self.cell_mut().add_const(255),
             Ast::Output => {
                 let value = self.cell_mut().clone();
                 self.effects.push(Effect::Output(value));
@@ -224,7 +223,9 @@ impl BasicBlock {
         self.effects.reserve(other.effects.len());
         for mut effect in other.effects.drain(..) {
             match &mut effect {
-                Effect::Output(value) => value.rebase(self),
+                Effect::Output(value) => {
+                    *value = mem::take(value).rebase(self);
+                }
                 Effect::Input { id } => *id += self.inputs,
                 Effect::GuardShift(offset) => {
                     *offset += self.offset;
@@ -240,7 +241,7 @@ impl BasicBlock {
             self.effects.push(effect);
         }
         for cell in &mut other.memory {
-            cell.rebase(self);
+            *cell = mem::take(cell).rebase(self);
         }
         let min_offset = self.offset + other.min_offset();
         self.reserve(min_offset);

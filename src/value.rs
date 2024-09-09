@@ -18,73 +18,111 @@ pub enum Value {
 }
 
 impl Value {
-    pub(crate) fn add(&mut self, rhs: u8) {
+    pub fn add(mut lhs: Box<Self>, mut rhs: Box<Self>) -> Self {
+        if let Value::Const(_) = lhs.as_ref() {
+            mem::swap(&mut lhs, &mut rhs);
+        }
+        match (lhs.as_ref(), rhs.as_ref()) {
+            (&Value::Const(lhs), &Value::Const(rhs)) => Value::Const(lhs.wrapping_add(rhs)),
+            (_, Value::Const(0)) => *lhs,
+            (_, _) if lhs == rhs => {
+                *rhs = Value::Const(2);
+                Value::mul(lhs, rhs)
+            }
+            (Value::Add(..), _) => {
+                let Value::Add(a, b) = mem::take(lhs.as_mut()) else {
+                    unreachable!();
+                };
+                match (b.as_ref(), rhs.as_ref()) {
+                    (&Value::Const(b), &Value::Const(c)) => {
+                        *rhs = Value::Const(b.wrapping_add(c));
+                        lhs = a;
+                    }
+                    (&Value::Const(_), _) => {
+                        *lhs = Value::add(a, rhs);
+                        rhs = b;
+                    }
+                    _ => *lhs = Value::Add(a, b),
+                }
+                Value::Add(lhs, rhs)
+            }
+            (_, Value::Add(..)) => {
+                let Value::Add(b, c) = mem::take(rhs.as_mut()) else {
+                    unreachable!();
+                };
+                *rhs = Value::add(lhs, b);
+                Value::add(rhs, c)
+            }
+            _ => Value::Add(lhs, rhs),
+        }
+    }
+
+    pub fn add_const(&mut self, value: u8) {
         let lhs = match self {
             Value::Add(_, rhs) => rhs.as_mut(),
             _ => self,
         };
         match lhs {
-            Value::Const(value) => {
-                *value = value.wrapping_add(rhs);
-                return;
-            }
+            Value::Const(lhs) => *lhs = lhs.wrapping_add(value),
             _ => {
                 let lhs = mem::take(self);
-                *self = Value::Add(Box::new(lhs), Box::new(Value::Const(rhs)));
+                *self = Value::add(Box::new(lhs), Box::new(Value::Const(value)));
             }
         }
     }
 
-    pub(crate) fn rebase(&mut self, bb: &BasicBlock) {
-        match self {
-            Value::Copy(offset) => {
-                *self = bb.cell_copy(bb.offset() + *offset);
-            }
-            Value::Const(_) => {}
-            Value::Input { id } => *id += bb.inputs(),
-            Value::Add(lhs, rhs) => {
-                lhs.rebase(bb);
-                rhs.rebase(bb);
-                self.simplify();
-            }
-            Value::Mul(lhs, rhs) => {
-                lhs.rebase(bb);
-                rhs.rebase(bb);
-                self.simplify();
-            }
+    pub fn mul(mut lhs: Box<Self>, mut rhs: Box<Self>) -> Self {
+        if let Value::Const(_) = lhs.as_ref() {
+            mem::swap(&mut lhs, &mut rhs);
         }
-    }
-
-    pub(crate) fn simplify(&mut self) {
-        match self {
-            Value::Copy(_) | Value::Const(_) | Value::Input { .. } => {}
-            Value::Add(lhs, rhs) => match (lhs.as_mut(), rhs.as_mut()) {
-                (Value::Const(lhs), Value::Const(rhs)) => {
-                    *self = Value::Const(lhs.wrapping_add(*rhs));
-                }
-                (value, Value::Const(0)) | (Value::Const(0), value) => {
-                    *self = mem::take(value);
-                }
-                (Value::Const(_), _) => mem::swap(lhs, rhs),
-                (Value::Add(lhs1, lhs2), _) => match lhs2.as_mut() {
-                    Value::Const(value) => {
-                        rhs.add(*value);
-                        *lhs = lhs1.clone();
+        match (lhs.as_ref(), rhs.as_ref()) {
+            (&Value::Const(lhs), &Value::Const(rhs)) => Value::Const(lhs.wrapping_mul(rhs)),
+            (_, Value::Const(1)) => *lhs,
+            (Value::Mul(..), _) => {
+                let Value::Mul(a, b) = mem::take(lhs.as_mut()) else {
+                    unreachable!();
+                };
+                match (b.as_ref(), rhs.as_ref()) {
+                    (&Value::Const(b), &Value::Const(c)) => {
+                        *rhs = Value::Const(b.wrapping_mul(c));
+                        lhs = a;
                     }
-                    _ => {}
-                },
-                _ => {}
-            },
-            Value::Mul(lhs, rhs) => match (lhs.as_mut(), rhs.as_mut()) {
-                (Value::Const(lhs), Value::Const(rhs)) => {
-                    *self = Value::Const(lhs.wrapping_mul(*rhs));
+                    (&Value::Const(_), _) => {
+                        *lhs = Value::mul(a, rhs);
+                        rhs = b;
+                    }
+                    _ => *lhs = Value::Mul(a, b),
                 }
-                (value, Value::Const(1)) | (Value::Const(1), value) => {
-                    *self = mem::take(value);
-                }
-                (Value::Const(_), _) => mem::swap(lhs, rhs),
-                _ => {}
+                Value::Mul(lhs, rhs)
+            }
+            (_, Value::Mul(..)) => {
+                let Value::Mul(b, c) = mem::take(rhs.as_mut()) else {
+                    unreachable!();
+                };
+                *rhs = Value::mul(lhs, b);
+                Value::mul(rhs, c)
+            }
+            _ => Value::Mul(lhs, rhs),
+        }
+    }
+
+    pub(crate) fn rebase(self, bb: &BasicBlock) -> Self {
+        match self {
+            Value::Copy(offset) => bb.cell_copy(bb.offset() + offset),
+            Value::Const(c) => Value::Const(c),
+            Value::Input { id } => Value::Input {
+                id: id + bb.inputs(),
             },
+            Value::Add(mut lhs, mut rhs) => {
+                *lhs = lhs.rebase(bb);
+                *rhs = rhs.rebase(bb);
+                Value::add(lhs, rhs)
+            }
+            Value::Mul(mut lhs, mut rhs) => {
+                *lhs = lhs.rebase(bb);
+                *rhs = rhs.rebase(bb);
+                Value::mul(lhs, rhs)
+            }
         }
     }
 
