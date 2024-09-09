@@ -54,11 +54,11 @@ pub struct BasicBlock {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Effect {
     /// Printing a value.
-    Output { value: Value },
+    Output(Value),
     /// Reading from the user.
     Input { id: usize },
-    /// Guarding that a shift can be performed.
-    GuardShift { offset: isize },
+    /// Guarding that a shift can be performed to an offset.
+    GuardShift(isize),
 }
 
 impl Ir {
@@ -94,40 +94,34 @@ impl Ir {
         if let Ir::Loop { condition, body } = self {
             if let [Ir::BasicBlock(bb)] = body.as_mut_slice() {
                 if bb.offset == 0 {
-                    if let Some(Value::Add { lhs, rhs }) = bb.get(0) {
-                        if let (Value::Copy { offset: 0 }, Value::Const { value: 255 }) =
-                            (lhs.as_ref(), rhs.as_ref())
-                        {
+                    if let Some(Value::Add(lhs, rhs)) = bb.get(0) {
+                        if **lhs == Value::Copy(0) && **rhs == Value::Const(255) {
                             if !bb
                                 .memory
                                 .iter()
                                 .zip(bb.min_offset()..)
                                 .any(|(cell, offset)| {
-                                    cell.references_other(offset)
-                                        || matches!(cell, Value::Mul { .. })
+                                    cell.references_other(offset) || matches!(cell, Value::Mul(..))
                                 })
                             {
                                 if bb
                                     .effects
                                     .iter()
-                                    .all(|effect| matches!(effect, Effect::GuardShift { .. }))
+                                    .all(|effect| matches!(effect, Effect::GuardShift(_)))
                                 {
-                                    *bb.get_mut(0).unwrap() = Value::Const { value: 0 };
+                                    *bb.get_mut(0).unwrap() = Value::Const(0);
                                     for cell in &mut bb.memory {
                                         match cell {
-                                            Value::Copy { .. } | Value::Const { .. } => {}
-                                            Value::Add { rhs, .. } => {
-                                                let rhs1 = mem::replace(
-                                                    rhs,
-                                                    Box::new(Value::Copy { offset: isize::MAX }),
-                                                );
-                                                *rhs = Box::new(Value::Mul {
-                                                    lhs: rhs1,
-                                                    rhs: Box::new(Value::Copy { offset: 0 }),
-                                                });
+                                            Value::Copy(_) | Value::Const(_) => {}
+                                            Value::Add(_, rhs) => {
+                                                let rhs1 = mem::take(rhs.as_mut());
+                                                *rhs = Box::new(Value::Mul(
+                                                    Box::new(rhs1),
+                                                    Box::new(Value::Copy(0)),
+                                                ));
                                                 rhs.simplify();
                                             }
-                                            Value::Input { .. } | Value::Mul { .. } => {
+                                            Value::Input { .. } | Value::Mul(..) => {
                                                 unreachable!()
                                             }
                                         }
@@ -137,14 +131,14 @@ impl Ir {
                                     return;
                                 }
                             }
-                            *condition = Condition::Count(Value::Copy { offset: 0 });
+                            *condition = Condition::Count(Value::Copy(0));
                         }
                     }
                 }
             }
             if let Some(Ir::BasicBlock(last)) = body.last() {
                 if let Some(offset) = Ir::offset_root(body) {
-                    if last.get(offset) == Some(&Value::Const { value: 0 }) {
+                    if last.get(offset) == Some(&Value::Const(0)) {
                         *condition = Condition::IfNonZero;
                         return;
                     }
@@ -199,25 +193,21 @@ impl BasicBlock {
                 self.offset += 1;
                 if self.offset > self.guarded_right {
                     self.guarded_right = self.offset;
-                    self.effects.push(Effect::GuardShift {
-                        offset: self.guarded_right,
-                    });
+                    self.effects.push(Effect::GuardShift(self.guarded_right));
                 }
             }
             Ast::Left => {
                 self.offset -= 1;
                 if self.offset < self.guarded_left {
                     self.guarded_left = self.offset;
-                    self.effects.push(Effect::GuardShift {
-                        offset: self.guarded_left,
-                    });
+                    self.effects.push(Effect::GuardShift(self.guarded_left));
                 }
             }
             Ast::Inc => self.cell_mut().add(1),
             Ast::Dec => self.cell_mut().add(255),
             Ast::Output => {
                 let value = self.cell_mut().clone();
-                self.effects.push(Effect::Output { value });
+                self.effects.push(Effect::Output(value));
             }
             Ast::Input => {
                 *self.cell_mut() = Value::Input { id: self.inputs };
@@ -234,9 +224,9 @@ impl BasicBlock {
         self.effects.reserve(other.effects.len());
         for mut effect in other.effects.drain(..) {
             match &mut effect {
-                Effect::Output { value } => value.rebase(self),
+                Effect::Output(value) => value.rebase(self),
                 Effect::Input { id } => *id += self.inputs,
-                Effect::GuardShift { offset } => {
+                Effect::GuardShift(offset) => {
                     *offset += self.offset;
                     if *offset < self.guarded_left {
                         self.guarded_left = *offset;
@@ -287,9 +277,7 @@ impl BasicBlock {
             self.memory.reserve(n);
             let offset = offset - self.origin_index as isize;
             for i in 0..n {
-                self.memory.push_front(Value::Copy {
-                    offset: offset - i as isize,
-                });
+                self.memory.push_front(Value::Copy(offset - i as isize));
             }
             self.origin_index += n;
         } else if index as usize >= self.memory.len() {
@@ -297,9 +285,7 @@ impl BasicBlock {
             self.memory.reserve(n);
             let offset = self.memory.len() - self.origin_index;
             for i in 0..n {
-                self.memory.push_back(Value::Copy {
-                    offset: (offset + i) as isize,
-                });
+                self.memory.push_back(Value::Copy((offset + i) as isize));
             }
         }
     }
@@ -326,7 +312,7 @@ impl BasicBlock {
         if 0 <= index && index < self.memory.len() as isize {
             self.memory[index as usize].clone()
         } else {
-            Value::Copy { offset }
+            Value::Copy(offset)
         }
     }
 }
@@ -356,23 +342,18 @@ mod tests {
         bb.apply(&Ast::Right);
         let expected = BasicBlock {
             memory: VecDeque::from([
-                Value::Add {
-                    lhs: Box::new(Value::Copy { offset: -1 }),
-                    rhs: Box::new(Value::Const { value: 255 }),
-                },
+                Value::Add(Box::new(Value::Copy(-1)), Box::new(Value::Const(255))),
                 Value::Input { id: 0 },
             ]),
             effects: vec![
-                Effect::GuardShift { offset: 1 },
-                Effect::GuardShift { offset: -1 },
-                Effect::Output {
-                    value: Value::Add {
-                        lhs: Box::new(Value::Copy { offset: 0 }),
-                        rhs: Box::new(Value::Const { value: 2 }),
-                    },
-                },
+                Effect::GuardShift(1),
+                Effect::GuardShift(-1),
+                Effect::Output(Value::Add(
+                    Box::new(Value::Copy(0)),
+                    Box::new(Value::Const(2)),
+                )),
                 Effect::Input { id: 0 },
-                Effect::GuardShift { offset: 2 },
+                Effect::GuardShift(2),
             ],
             origin_index: 1,
             offset: 2,
@@ -394,10 +375,10 @@ mod tests {
                 condition: Condition::WhileNonZero,
                 body: vec![
                     Ir::BasicBlock(BasicBlock {
-                        memory: VecDeque::from([Value::Add {
-                            lhs: Box::new(Value::Copy { offset: 0 }),
-                            rhs: Box::new(Value::Const { value: 255 }),
-                        }]),
+                        memory: VecDeque::from([Value::Add(
+                            Box::new(Value::Copy(0)),
+                            Box::new(Value::Const(255)),
+                        )]),
                         effects: vec![],
                         origin_index: 0,
                         offset: 0,
@@ -409,16 +390,10 @@ mod tests {
                         condition: Condition::WhileNonZero,
                         body: vec![Ir::BasicBlock(BasicBlock {
                             memory: VecDeque::from([
-                                Value::Add {
-                                    lhs: Box::new(Value::Copy { offset: -1 }),
-                                    rhs: Box::new(Value::Const { value: 255 }),
-                                },
-                                Value::Add {
-                                    lhs: Box::new(Value::Copy { offset: 0 }),
-                                    rhs: Box::new(Value::Const { value: 255 }),
-                                },
+                                Value::Add(Box::new(Value::Copy(-1)), Box::new(Value::Const(255))),
+                                Value::Add(Box::new(Value::Copy(0)), Box::new(Value::Const(255))),
                             ]),
-                            effects: vec![Effect::GuardShift { offset: -1 }],
+                            effects: vec![Effect::GuardShift(-1)],
                             origin_index: 1,
                             offset: 0,
                             guarded_left: -1,
@@ -427,10 +402,10 @@ mod tests {
                         })],
                     },
                     Ir::BasicBlock(BasicBlock {
-                        memory: VecDeque::from([Value::Add {
-                            lhs: Box::new(Value::Copy { offset: 0 }),
-                            rhs: Box::new(Value::Const { value: 1 }),
-                        }]),
+                        memory: VecDeque::from([Value::Add(
+                            Box::new(Value::Copy(0)),
+                            Box::new(Value::Const(1)),
+                        )]),
                         effects: vec![],
                         origin_index: 0,
                         offset: 0,
@@ -443,10 +418,10 @@ mod tests {
                         body: vec![Ir::BasicBlock(BasicBlock {
                             memory: VecDeque::from([]),
                             effects: vec![
-                                Effect::GuardShift { offset: -1 },
-                                Effect::GuardShift { offset: -2 },
-                                Effect::GuardShift { offset: -3 },
-                                Effect::GuardShift { offset: -4 },
+                                Effect::GuardShift(-1),
+                                Effect::GuardShift(-2),
+                                Effect::GuardShift(-3),
+                                Effect::GuardShift(-4),
                             ],
                             origin_index: 0,
                             offset: -4,
@@ -459,7 +434,7 @@ mod tests {
             },
             Ir::BasicBlock(BasicBlock {
                 memory: VecDeque::from([]),
-                effects: vec![Effect::GuardShift { offset: -1 }],
+                effects: vec![Effect::GuardShift(-1)],
                 origin_index: 0,
                 offset: -1,
                 guarded_left: -1,
@@ -470,16 +445,10 @@ mod tests {
                 condition: Condition::WhileNonZero,
                 body: vec![Ir::BasicBlock(BasicBlock {
                     memory: VecDeque::from([
-                        Value::Add {
-                            lhs: Box::new(Value::Copy { offset: 0 }),
-                            rhs: Box::new(Value::Const { value: 255 }),
-                        },
-                        Value::Add {
-                            lhs: Box::new(Value::Copy { offset: 1 }),
-                            rhs: Box::new(Value::Const { value: 1 }),
-                        },
+                        Value::Add(Box::new(Value::Copy(0)), Box::new(Value::Const(255))),
+                        Value::Add(Box::new(Value::Copy(1)), Box::new(Value::Const(1))),
                     ]),
-                    effects: vec![Effect::GuardShift { offset: 1 }],
+                    effects: vec![Effect::GuardShift(1)],
                     origin_index: 0,
                     offset: 0,
                     guarded_left: 0,
@@ -512,7 +481,7 @@ mod tests {
         let mut ir = Ir::lower(&Ast::parse(src).unwrap());
         Ir::optimize_root(&mut ir);
         let expected = vec![Ir::BasicBlock(BasicBlock {
-            memory: VecDeque::from([Value::Const { value: 0 }]),
+            memory: VecDeque::from([Value::Const(0)]),
             effects: vec![],
             origin_index: 0,
             offset: 0,
@@ -527,13 +496,10 @@ mod tests {
         Ir::optimize_root(&mut ir);
         let expected = vec![Ir::BasicBlock(BasicBlock {
             memory: VecDeque::from([
-                Value::Const { value: 0 },
-                Value::Add {
-                    lhs: Box::new(Value::Copy { offset: 1 }),
-                    rhs: Box::new(Value::Copy { offset: 0 }),
-                },
+                Value::Const(0),
+                Value::Add(Box::new(Value::Copy(1)), Box::new(Value::Copy(0))),
             ]),
-            effects: vec![Effect::GuardShift { offset: 1 }],
+            effects: vec![Effect::GuardShift(1)],
             origin_index: 0,
             offset: 0,
             guarded_left: 0,
@@ -547,16 +513,16 @@ mod tests {
         Ir::optimize_root(&mut ir);
         let expected = vec![Ir::BasicBlock(BasicBlock {
             memory: VecDeque::from([
-                Value::Const { value: 0 },
-                Value::Add {
-                    lhs: Box::new(Value::Copy { offset: 1 }),
-                    rhs: Box::new(Value::Mul {
-                        lhs: Box::new(Value::Copy { offset: 0 }),
-                        rhs: Box::new(Value::Const { value: 3 }),
-                    }),
-                },
+                Value::Const(0),
+                Value::Add(
+                    Box::new(Value::Copy(1)),
+                    Box::new(Value::Mul(
+                        Box::new(Value::Copy(0)),
+                        Box::new(Value::Const(3)),
+                    )),
+                ),
             ]),
-            effects: vec![Effect::GuardShift { offset: 1 }],
+            effects: vec![Effect::GuardShift(1)],
             origin_index: 0,
             offset: 0,
             guarded_left: 0,
@@ -569,15 +535,13 @@ mod tests {
         let mut ir = Ir::lower(&Ast::parse(src).unwrap());
         Ir::optimize_root(&mut ir);
         let expected = vec![Ir::Loop {
-            condition: Condition::Count(Value::Copy { offset: 0 }),
+            condition: Condition::Count(Value::Copy(0)),
             body: vec![Ir::BasicBlock(BasicBlock {
-                memory: VecDeque::from([Value::Add {
-                    lhs: Box::new(Value::Copy { offset: 0 }),
-                    rhs: Box::new(Value::Const { value: 255 }),
-                }]),
-                effects: vec![Effect::Output {
-                    value: Value::Copy { offset: 0 },
-                }],
+                memory: VecDeque::from([Value::Add(
+                    Box::new(Value::Copy(0)),
+                    Box::new(Value::Const(255)),
+                )]),
+                effects: vec![Effect::Output(Value::Copy(0))],
                 origin_index: 0,
                 offset: 0,
                 guarded_left: 0,

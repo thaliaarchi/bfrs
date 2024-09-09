@@ -6,51 +6,48 @@ use crate::ir::BasicBlock;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Value {
     /// Copy the value of a cell from before this basic block.
-    Copy { offset: isize },
+    Copy(isize),
     /// A constant value.
-    Const { value: u8 },
+    Const(u8),
     /// A value read from the user.
     Input { id: usize },
     /// Addition of two values.
-    Add { lhs: Box<Value>, rhs: Box<Value> },
+    Add(Box<Value>, Box<Value>),
     /// Multiplication of two values.
-    Mul { lhs: Box<Value>, rhs: Box<Value> },
+    Mul(Box<Value>, Box<Value>),
 }
 
 impl Value {
     pub(crate) fn add(&mut self, rhs: u8) {
         let lhs = match self {
-            Value::Add { rhs, .. } => rhs.as_mut(),
+            Value::Add(_, rhs) => rhs.as_mut(),
             _ => self,
         };
         match lhs {
-            Value::Const { value } => {
+            Value::Const(value) => {
                 *value = value.wrapping_add(rhs);
                 return;
             }
             _ => {
-                let lhs = mem::replace(self, Value::Copy { offset: isize::MAX });
-                *self = Value::Add {
-                    lhs: Box::new(lhs),
-                    rhs: Box::new(Value::Const { value: rhs }),
-                };
+                let lhs = mem::take(self);
+                *self = Value::Add(Box::new(lhs), Box::new(Value::Const(rhs)));
             }
         }
     }
 
     pub(crate) fn rebase(&mut self, bb: &BasicBlock) {
         match self {
-            Value::Copy { offset } => {
+            Value::Copy(offset) => {
                 *self = bb.cell_copy(bb.offset() + *offset);
             }
-            Value::Const { .. } => {}
+            Value::Const(_) => {}
             Value::Input { id } => *id += bb.inputs(),
-            Value::Add { lhs, rhs } => {
+            Value::Add(lhs, rhs) => {
                 lhs.rebase(bb);
                 rhs.rebase(bb);
                 self.simplify();
             }
-            Value::Mul { lhs, rhs } => {
+            Value::Mul(lhs, rhs) => {
                 lhs.rebase(bb);
                 rhs.rebase(bb);
                 self.simplify();
@@ -60,25 +57,17 @@ impl Value {
 
     pub(crate) fn simplify(&mut self) {
         match self {
-            Value::Copy { .. } | Value::Const { .. } | Value::Input { .. } => {}
-            Value::Add { lhs, rhs } => match (lhs.as_mut(), rhs.as_mut()) {
-                (Value::Const { value: lhs_value }, Value::Const { value: rhs_value }) => {
-                    *self = Value::Const {
-                        value: lhs_value.wrapping_add(*rhs_value),
-                    };
+            Value::Copy(_) | Value::Const(_) | Value::Input { .. } => {}
+            Value::Add(lhs, rhs) => match (lhs.as_mut(), rhs.as_mut()) {
+                (Value::Const(lhs), Value::Const(rhs)) => {
+                    *self = Value::Const(lhs.wrapping_add(*rhs));
                 }
-                (value, Value::Const { value: 0 }) | (Value::Const { value: 0 }, value) => {
-                    *self = mem::replace(value, Value::Copy { offset: isize::MAX });
+                (value, Value::Const(0)) | (Value::Const(0), value) => {
+                    *self = mem::take(value);
                 }
-                (Value::Const { .. }, _) => mem::swap(lhs, rhs),
-                (
-                    Value::Add {
-                        lhs: lhs1,
-                        rhs: lhs2,
-                    },
-                    _,
-                ) => match lhs2.as_mut() {
-                    Value::Const { value } => {
+                (Value::Const(_), _) => mem::swap(lhs, rhs),
+                (Value::Add(lhs1, lhs2), _) => match lhs2.as_mut() {
+                    Value::Const(value) => {
                         rhs.add(*value);
                         *lhs = lhs1.clone();
                     }
@@ -86,16 +75,14 @@ impl Value {
                 },
                 _ => {}
             },
-            Value::Mul { lhs, rhs } => match (lhs.as_mut(), rhs.as_mut()) {
-                (Value::Const { value: lhs_value }, Value::Const { value: rhs_value }) => {
-                    *self = Value::Const {
-                        value: lhs_value.wrapping_mul(*rhs_value),
-                    };
+            Value::Mul(lhs, rhs) => match (lhs.as_mut(), rhs.as_mut()) {
+                (Value::Const(lhs), Value::Const(rhs)) => {
+                    *self = Value::Const(lhs.wrapping_mul(*rhs));
                 }
-                (value, Value::Const { value: 1 }) | (Value::Const { value: 1 }, value) => {
-                    *self = mem::replace(value, Value::Copy { offset: isize::MAX });
+                (value, Value::Const(1)) | (Value::Const(1), value) => {
+                    *self = mem::take(value);
                 }
-                (Value::Const { .. }, _) => mem::swap(lhs, rhs),
+                (Value::Const(_), _) => mem::swap(lhs, rhs),
                 _ => {}
             },
         }
@@ -104,11 +91,17 @@ impl Value {
     /// Returns whether this cell references a cell besides itself.
     pub(crate) fn references_other(&self, offset: isize) -> bool {
         match self {
-            Value::Copy { offset: offset2 } => *offset2 != offset,
-            Value::Const { .. } | Value::Input { .. } => false,
-            Value::Add { lhs, rhs } | Value::Mul { lhs, rhs } => {
+            Value::Copy(offset2) => *offset2 != offset,
+            Value::Const(_) | Value::Input { .. } => false,
+            Value::Add(lhs, rhs) | Value::Mul(lhs, rhs) => {
                 lhs.references_other(offset) || rhs.references_other(offset)
             }
         }
+    }
+}
+
+impl Default for Value {
+    fn default() -> Self {
+        Value::Copy(isize::MAX)
     }
 }
