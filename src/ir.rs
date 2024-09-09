@@ -5,10 +5,7 @@ use crate::Ast;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Ir {
     /// A basic block of non-branching instructions.
-    BasicBlock {
-        /// The effects of this basic block.
-        memory: AbstractMemory,
-    },
+    BasicBlock(BasicBlock),
     /// A loop.
     Loop {
         /// The contained blocks.
@@ -18,7 +15,7 @@ pub enum Ir {
 
 /// Abstract model of a sub-slice of memory and the effects in a basic block.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct AbstractMemory {
+pub struct BasicBlock {
     /// A sub-slice of the full memory.
     memory: VecDeque<AbstractCell>,
     /// A sequence of effects in a basic block.
@@ -74,24 +71,22 @@ impl Ir {
                 });
             } else {
                 if !matches!(ir.last(), Some(Ir::BasicBlock { .. })) {
-                    ir.push(Ir::BasicBlock {
-                        memory: AbstractMemory::new(),
-                    });
+                    ir.push(Ir::BasicBlock(BasicBlock::new()));
                 }
-                let Some(Ir::BasicBlock { memory }) = ir.last_mut() else {
+                let Some(Ir::BasicBlock(bb)) = ir.last_mut() else {
                     unreachable!();
                 };
-                memory.apply(inst);
+                bb.apply(inst);
             }
         }
         ir
     }
 }
 
-impl AbstractMemory {
-    /// Constructs an abstract memory with no effects.
+impl BasicBlock {
+    /// Constructs a basic block with no effects.
     pub fn new() -> Self {
-        AbstractMemory {
+        BasicBlock {
             memory: VecDeque::new(),
             effects: Vec::new(),
             start_index: 0,
@@ -102,7 +97,7 @@ impl AbstractMemory {
         }
     }
 
-    /// Applies an operation to the abstract memory.
+    /// Applies an operation to the basic block.
     pub fn apply(&mut self, op: &Ast) {
         match op {
             Ast::Right => {
@@ -191,25 +186,25 @@ mod tests {
     use std::collections::VecDeque;
 
     use crate::{
-        ir::{AbstractCell, AbstractMemory, Effect, Ir},
+        ir::{AbstractCell, BasicBlock, Effect, Ir},
         Ast,
     };
 
     #[test]
     fn apply_ops() {
-        let mut memory = AbstractMemory::new();
-        memory.apply(&Ast::Inc);
-        memory.apply(&Ast::Inc);
-        memory.apply(&Ast::Right);
-        memory.apply(&Ast::Left);
-        memory.apply(&Ast::Left);
-        memory.apply(&Ast::Dec);
-        memory.apply(&Ast::Right);
-        memory.apply(&Ast::Output);
-        memory.apply(&Ast::Input);
-        memory.apply(&Ast::Right);
-        memory.apply(&Ast::Right);
-        let expected = AbstractMemory {
+        let mut bb = BasicBlock::new();
+        bb.apply(&Ast::Inc);
+        bb.apply(&Ast::Inc);
+        bb.apply(&Ast::Right);
+        bb.apply(&Ast::Left);
+        bb.apply(&Ast::Left);
+        bb.apply(&Ast::Dec);
+        bb.apply(&Ast::Right);
+        bb.apply(&Ast::Output);
+        bb.apply(&Ast::Input);
+        bb.apply(&Ast::Right);
+        bb.apply(&Ast::Right);
+        let expected = BasicBlock {
             memory: VecDeque::from([
                 AbstractCell::Add {
                     lhs: Box::new(AbstractCell::Copy { offset: -1 }),
@@ -235,7 +230,7 @@ mod tests {
             guarded_right: 2,
             inputs: 1,
         };
-        assert_eq!(memory, expected);
+        assert_eq!(bb, expected);
     }
 
     #[test]
@@ -247,108 +242,96 @@ mod tests {
         let expected = vec![
             Ir::Loop {
                 body: vec![
-                    Ir::BasicBlock {
-                        memory: AbstractMemory {
-                            memory: VecDeque::from([AbstractCell::Add {
-                                lhs: Box::new(AbstractCell::Copy { offset: 0 }),
-                                rhs: Box::new(AbstractCell::Const { value: 255 }),
-                            }]),
-                            effects: vec![],
-                            start_index: 0,
-                            offset: 0,
-                            guarded_left: 0,
-                            guarded_right: 0,
-                            inputs: 0,
-                        },
-                    },
-                    Ir::Loop {
-                        body: vec![Ir::BasicBlock {
-                            memory: AbstractMemory {
-                                memory: VecDeque::from([
-                                    AbstractCell::Add {
-                                        lhs: Box::new(AbstractCell::Copy { offset: -1 }),
-                                        rhs: Box::new(AbstractCell::Const { value: 255 }),
-                                    },
-                                    AbstractCell::Add {
-                                        lhs: Box::new(AbstractCell::Copy { offset: 0 }),
-                                        rhs: Box::new(AbstractCell::Const { value: 255 }),
-                                    },
-                                ]),
-                                effects: vec![Effect::GuardShift { offset: -1 }],
-                                start_index: 1,
-                                offset: 0,
-                                guarded_left: -1,
-                                guarded_right: 0,
-                                inputs: 0,
-                            },
-                        }],
-                    },
-                    Ir::BasicBlock {
-                        memory: AbstractMemory {
-                            memory: VecDeque::from([AbstractCell::Add {
-                                lhs: Box::new(AbstractCell::Copy { offset: 0 }),
-                                rhs: Box::new(AbstractCell::Const { value: 1 }),
-                            }]),
-                            effects: vec![],
-                            start_index: 0,
-                            offset: 0,
-                            guarded_left: 0,
-                            guarded_right: 0,
-                            inputs: 0,
-                        },
-                    },
-                    Ir::Loop {
-                        body: vec![Ir::BasicBlock {
-                            memory: AbstractMemory {
-                                memory: VecDeque::from([]),
-                                effects: vec![
-                                    Effect::GuardShift { offset: -1 },
-                                    Effect::GuardShift { offset: -2 },
-                                    Effect::GuardShift { offset: -3 },
-                                    Effect::GuardShift { offset: -4 },
-                                ],
-                                start_index: 0,
-                                offset: -4,
-                                guarded_left: -4,
-                                guarded_right: 0,
-                                inputs: 0,
-                            },
-                        }],
-                    },
-                ],
-            },
-            Ir::BasicBlock {
-                memory: AbstractMemory {
-                    memory: VecDeque::from([]),
-                    effects: vec![Effect::GuardShift { offset: -1 }],
-                    start_index: 0,
-                    offset: -1,
-                    guarded_left: -1,
-                    guarded_right: 0,
-                    inputs: 0,
-                },
-            },
-            Ir::Loop {
-                body: vec![Ir::BasicBlock {
-                    memory: AbstractMemory {
-                        memory: VecDeque::from([
-                            AbstractCell::Add {
-                                lhs: Box::new(AbstractCell::Copy { offset: 0 }),
-                                rhs: Box::new(AbstractCell::Const { value: 255 }),
-                            },
-                            AbstractCell::Add {
-                                lhs: Box::new(AbstractCell::Copy { offset: 1 }),
-                                rhs: Box::new(AbstractCell::Const { value: 1 }),
-                            },
-                        ]),
-                        effects: vec![Effect::GuardShift { offset: 1 }],
+                    Ir::BasicBlock(BasicBlock {
+                        memory: VecDeque::from([AbstractCell::Add {
+                            lhs: Box::new(AbstractCell::Copy { offset: 0 }),
+                            rhs: Box::new(AbstractCell::Const { value: 255 }),
+                        }]),
+                        effects: vec![],
                         start_index: 0,
                         offset: 0,
                         guarded_left: 0,
-                        guarded_right: 1,
+                        guarded_right: 0,
                         inputs: 0,
+                    }),
+                    Ir::Loop {
+                        body: vec![Ir::BasicBlock(BasicBlock {
+                            memory: VecDeque::from([
+                                AbstractCell::Add {
+                                    lhs: Box::new(AbstractCell::Copy { offset: -1 }),
+                                    rhs: Box::new(AbstractCell::Const { value: 255 }),
+                                },
+                                AbstractCell::Add {
+                                    lhs: Box::new(AbstractCell::Copy { offset: 0 }),
+                                    rhs: Box::new(AbstractCell::Const { value: 255 }),
+                                },
+                            ]),
+                            effects: vec![Effect::GuardShift { offset: -1 }],
+                            start_index: 1,
+                            offset: 0,
+                            guarded_left: -1,
+                            guarded_right: 0,
+                            inputs: 0,
+                        })],
                     },
-                }],
+                    Ir::BasicBlock(BasicBlock {
+                        memory: VecDeque::from([AbstractCell::Add {
+                            lhs: Box::new(AbstractCell::Copy { offset: 0 }),
+                            rhs: Box::new(AbstractCell::Const { value: 1 }),
+                        }]),
+                        effects: vec![],
+                        start_index: 0,
+                        offset: 0,
+                        guarded_left: 0,
+                        guarded_right: 0,
+                        inputs: 0,
+                    }),
+                    Ir::Loop {
+                        body: vec![Ir::BasicBlock(BasicBlock {
+                            memory: VecDeque::from([]),
+                            effects: vec![
+                                Effect::GuardShift { offset: -1 },
+                                Effect::GuardShift { offset: -2 },
+                                Effect::GuardShift { offset: -3 },
+                                Effect::GuardShift { offset: -4 },
+                            ],
+                            start_index: 0,
+                            offset: -4,
+                            guarded_left: -4,
+                            guarded_right: 0,
+                            inputs: 0,
+                        })],
+                    },
+                ],
+            },
+            Ir::BasicBlock(BasicBlock {
+                memory: VecDeque::from([]),
+                effects: vec![Effect::GuardShift { offset: -1 }],
+                start_index: 0,
+                offset: -1,
+                guarded_left: -1,
+                guarded_right: 0,
+                inputs: 0,
+            }),
+            Ir::Loop {
+                body: vec![Ir::BasicBlock(BasicBlock {
+                    memory: VecDeque::from([
+                        AbstractCell::Add {
+                            lhs: Box::new(AbstractCell::Copy { offset: 0 }),
+                            rhs: Box::new(AbstractCell::Const { value: 255 }),
+                        },
+                        AbstractCell::Add {
+                            lhs: Box::new(AbstractCell::Copy { offset: 1 }),
+                            rhs: Box::new(AbstractCell::Const { value: 1 }),
+                        },
+                    ]),
+                    effects: vec![Effect::GuardShift { offset: 1 }],
+                    start_index: 0,
+                    offset: 0,
+                    guarded_left: 0,
+                    guarded_right: 1,
+                    inputs: 0,
+                })],
             },
         ];
         assert_eq!(ir, expected);
