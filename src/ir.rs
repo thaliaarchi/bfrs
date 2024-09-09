@@ -1,6 +1,6 @@
 use std::{collections::VecDeque, mem};
 
-use crate::Ast;
+use crate::{Ast, Value};
 
 // TODO:
 // - Concatenate flattened loops.
@@ -26,14 +26,14 @@ pub enum Condition {
     /// Execute if the current cell is non-zero.
     IfNonZero,
     /// Loop a fixed number of times.
-    Count(AbstractCell),
+    Count(Value),
 }
 
 /// Abstract model of a sub-slice of memory and the effects in a basic block.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BasicBlock {
     /// A sub-slice of the full memory.
-    memory: VecDeque<AbstractCell>,
+    memory: VecDeque<Value>,
     /// A sequence of effects in a basic block.
     effects: Vec<Effect>,
     /// The index in `memory` of the initial cell at the start of this basic
@@ -50,32 +50,11 @@ pub struct BasicBlock {
     inputs: usize,
 }
 
-/// Abstract model of a cell.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum AbstractCell {
-    /// Copy the value of a cell from before this basic block.
-    Copy { offset: isize },
-    /// A constant value.
-    Const { value: u8 },
-    /// A value read from the user.
-    Input { id: usize },
-    /// Addition of two values.
-    Add {
-        lhs: Box<AbstractCell>,
-        rhs: Box<AbstractCell>,
-    },
-    /// Multiplication of two values.
-    Mul {
-        lhs: Box<AbstractCell>,
-        rhs: Box<AbstractCell>,
-    },
-}
-
 /// An observable effect.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Effect {
     /// Printing a value.
-    Output { value: AbstractCell },
+    Output { value: Value },
     /// Reading from the user.
     Input { id: usize },
     /// Guarding that a shift can be performed.
@@ -115,11 +94,9 @@ impl Ir {
         if let Ir::Loop { condition, body } = self {
             if let [Ir::BasicBlock(bb)] = body.as_mut_slice() {
                 if bb.offset == 0 {
-                    if let Some(AbstractCell::Add { lhs, rhs }) = bb.get(0) {
-                        if let (
-                            AbstractCell::Copy { offset: 0 },
-                            AbstractCell::Const { value: 255 },
-                        ) = (lhs.as_ref(), rhs.as_ref())
+                    if let Some(Value::Add { lhs, rhs }) = bb.get(0) {
+                        if let (Value::Copy { offset: 0 }, Value::Const { value: 255 }) =
+                            (lhs.as_ref(), rhs.as_ref())
                         {
                             if !bb
                                 .memory
@@ -127,7 +104,7 @@ impl Ir {
                                 .zip(bb.min_offset()..)
                                 .any(|(cell, offset)| {
                                     cell.references_other(offset)
-                                        || matches!(cell, AbstractCell::Mul { .. })
+                                        || matches!(cell, Value::Mul { .. })
                                 })
                             {
                                 if bb
@@ -135,26 +112,24 @@ impl Ir {
                                     .iter()
                                     .all(|effect| matches!(effect, Effect::GuardShift { .. }))
                                 {
-                                    *bb.get_mut(0).unwrap() = AbstractCell::Const { value: 0 };
+                                    *bb.get_mut(0).unwrap() = Value::Const { value: 0 };
                                     for cell in &mut bb.memory {
                                         match cell {
-                                            AbstractCell::Copy { .. }
-                                            | AbstractCell::Const { .. } => {}
-                                            AbstractCell::Add { rhs, .. } => {
+                                            Value::Copy { .. } | Value::Const { .. } => {}
+                                            Value::Add { rhs, .. } => {
                                                 let rhs1 = mem::replace(
                                                     rhs,
-                                                    Box::new(AbstractCell::Copy {
-                                                        offset: isize::MAX,
-                                                    }),
+                                                    Box::new(Value::Copy { offset: isize::MAX }),
                                                 );
-                                                *rhs = Box::new(AbstractCell::Mul {
+                                                *rhs = Box::new(Value::Mul {
                                                     lhs: rhs1,
-                                                    rhs: Box::new(AbstractCell::Copy { offset: 0 }),
+                                                    rhs: Box::new(Value::Copy { offset: 0 }),
                                                 });
                                                 rhs.simplify();
                                             }
-                                            AbstractCell::Input { .. }
-                                            | AbstractCell::Mul { .. } => unreachable!(),
+                                            Value::Input { .. } | Value::Mul { .. } => {
+                                                unreachable!()
+                                            }
                                         }
                                     }
                                     let bb = body.drain(..).next().unwrap();
@@ -162,14 +137,14 @@ impl Ir {
                                     return;
                                 }
                             }
-                            *condition = Condition::Count(AbstractCell::Copy { offset: 0 });
+                            *condition = Condition::Count(Value::Copy { offset: 0 });
                         }
                     }
                 }
             }
             if let Some(Ir::BasicBlock(last)) = body.last() {
                 if let Some(offset) = Ir::offset_root(body) {
-                    if last.get(offset) == Some(&AbstractCell::Const { value: 0 }) {
+                    if last.get(offset) == Some(&Value::Const { value: 0 }) {
                         *condition = Condition::IfNonZero;
                         return;
                     }
@@ -245,7 +220,7 @@ impl BasicBlock {
                 self.effects.push(Effect::Output { value });
             }
             Ast::Input => {
-                *self.cell_mut() = AbstractCell::Input { id: self.inputs };
+                *self.cell_mut() = Value::Input { id: self.inputs };
                 self.effects.push(Effect::Input { id: self.inputs });
                 self.inputs += 1;
             }
@@ -289,12 +264,20 @@ impl BasicBlock {
         self.inputs += other.inputs;
     }
 
-    fn min_offset(&self) -> isize {
+    pub fn offset(&self) -> isize {
+        self.offset
+    }
+
+    pub fn min_offset(&self) -> isize {
         -(self.origin_index as isize)
     }
 
-    fn max_offset(&self) -> isize {
+    pub fn max_offset(&self) -> isize {
         self.min_offset() + self.memory.len() as isize
+    }
+
+    pub fn inputs(&self) -> usize {
+        self.inputs
     }
 
     fn reserve(&mut self, offset: isize) {
@@ -304,7 +287,7 @@ impl BasicBlock {
             self.memory.reserve(n);
             let offset = offset - self.origin_index as isize;
             for i in 0..n {
-                self.memory.push_front(AbstractCell::Copy {
+                self.memory.push_front(Value::Copy {
                     offset: offset - i as isize,
                 });
             }
@@ -314,141 +297,36 @@ impl BasicBlock {
             self.memory.reserve(n);
             let offset = self.memory.len() - self.origin_index;
             for i in 0..n {
-                self.memory.push_back(AbstractCell::Copy {
+                self.memory.push_back(Value::Copy {
                     offset: (offset + i) as isize,
                 });
             }
         }
     }
 
-    fn get(&self, offset: isize) -> Option<&AbstractCell> {
+    fn get(&self, offset: isize) -> Option<&Value> {
         usize::try_from(self.origin_index as isize + offset)
             .ok()
             .and_then(|i| self.memory.get(i))
     }
 
-    fn get_mut(&mut self, offset: isize) -> Option<&mut AbstractCell> {
+    fn get_mut(&mut self, offset: isize) -> Option<&mut Value> {
         usize::try_from(self.origin_index as isize + offset)
             .ok()
             .and_then(|i| self.memory.get_mut(i))
     }
 
-    fn cell_mut(&mut self) -> &mut AbstractCell {
+    fn cell_mut(&mut self) -> &mut Value {
         self.reserve(self.offset);
         &mut self.memory[(self.origin_index as isize + self.offset) as usize]
     }
 
-    fn cell_copy(&self, offset: isize) -> AbstractCell {
+    pub(crate) fn cell_copy(&self, offset: isize) -> Value {
         let index = self.origin_index as isize - offset;
         if 0 <= index && index < self.memory.len() as isize {
             self.memory[index as usize].clone()
         } else {
-            AbstractCell::Copy { offset }
-        }
-    }
-}
-
-impl AbstractCell {
-    fn add(&mut self, rhs: u8) {
-        let lhs = match self {
-            AbstractCell::Add { rhs, .. } => rhs.as_mut(),
-            _ => self,
-        };
-        match lhs {
-            AbstractCell::Const { value } => {
-                *value = value.wrapping_add(rhs);
-                return;
-            }
-            _ => {
-                let lhs = mem::replace(self, AbstractCell::Copy { offset: isize::MAX });
-                *self = AbstractCell::Add {
-                    lhs: Box::new(lhs),
-                    rhs: Box::new(AbstractCell::Const { value: rhs }),
-                };
-            }
-        }
-    }
-
-    fn rebase(&mut self, bb: &BasicBlock) {
-        match self {
-            AbstractCell::Copy { offset } => {
-                *self = bb.cell_copy(bb.offset + *offset);
-            }
-            AbstractCell::Const { .. } => {}
-            AbstractCell::Input { id } => *id += bb.inputs,
-            AbstractCell::Add { lhs, rhs } => {
-                lhs.rebase(bb);
-                rhs.rebase(bb);
-                self.simplify();
-            }
-            AbstractCell::Mul { lhs, rhs } => {
-                lhs.rebase(bb);
-                rhs.rebase(bb);
-                self.simplify();
-            }
-        }
-    }
-
-    fn simplify(&mut self) {
-        match self {
-            AbstractCell::Copy { .. } | AbstractCell::Const { .. } | AbstractCell::Input { .. } => {
-            }
-            AbstractCell::Add { lhs, rhs } => match (lhs.as_mut(), rhs.as_mut()) {
-                (
-                    AbstractCell::Const { value: lhs_value },
-                    AbstractCell::Const { value: rhs_value },
-                ) => {
-                    *self = AbstractCell::Const {
-                        value: lhs_value.wrapping_add(*rhs_value),
-                    };
-                }
-                (value, AbstractCell::Const { value: 0 })
-                | (AbstractCell::Const { value: 0 }, value) => {
-                    *self = mem::replace(value, AbstractCell::Copy { offset: isize::MAX });
-                }
-                (AbstractCell::Const { .. }, _) => mem::swap(lhs, rhs),
-                (
-                    AbstractCell::Add {
-                        lhs: lhs1,
-                        rhs: lhs2,
-                    },
-                    _,
-                ) => match lhs2.as_mut() {
-                    AbstractCell::Const { value } => {
-                        rhs.add(*value);
-                        *lhs = lhs1.clone();
-                    }
-                    _ => {}
-                },
-                _ => {}
-            },
-            AbstractCell::Mul { lhs, rhs } => match (lhs.as_mut(), rhs.as_mut()) {
-                (
-                    AbstractCell::Const { value: lhs_value },
-                    AbstractCell::Const { value: rhs_value },
-                ) => {
-                    *self = AbstractCell::Const {
-                        value: lhs_value.wrapping_mul(*rhs_value),
-                    };
-                }
-                (value, AbstractCell::Const { value: 1 })
-                | (AbstractCell::Const { value: 1 }, value) => {
-                    *self = mem::replace(value, AbstractCell::Copy { offset: isize::MAX });
-                }
-                (AbstractCell::Const { .. }, _) => mem::swap(lhs, rhs),
-                _ => {}
-            },
-        }
-    }
-
-    /// Returns whether this cell references a cell besides itself.
-    fn references_other(&self, offset: isize) -> bool {
-        match self {
-            AbstractCell::Copy { offset: offset2 } => *offset2 != offset,
-            AbstractCell::Const { .. } | AbstractCell::Input { .. } => false,
-            AbstractCell::Add { lhs, rhs } | AbstractCell::Mul { lhs, rhs } => {
-                lhs.references_other(offset) || rhs.references_other(offset)
-            }
+            Value::Copy { offset }
         }
     }
 }
@@ -458,8 +336,8 @@ mod tests {
     use std::collections::VecDeque;
 
     use crate::{
-        ir::{AbstractCell, BasicBlock, Condition, Effect, Ir},
-        Ast,
+        ir::{BasicBlock, Condition, Effect, Ir},
+        Ast, Value,
     };
 
     #[test]
@@ -478,19 +356,19 @@ mod tests {
         bb.apply(&Ast::Right);
         let expected = BasicBlock {
             memory: VecDeque::from([
-                AbstractCell::Add {
-                    lhs: Box::new(AbstractCell::Copy { offset: -1 }),
-                    rhs: Box::new(AbstractCell::Const { value: 255 }),
+                Value::Add {
+                    lhs: Box::new(Value::Copy { offset: -1 }),
+                    rhs: Box::new(Value::Const { value: 255 }),
                 },
-                AbstractCell::Input { id: 0 },
+                Value::Input { id: 0 },
             ]),
             effects: vec![
                 Effect::GuardShift { offset: 1 },
                 Effect::GuardShift { offset: -1 },
                 Effect::Output {
-                    value: AbstractCell::Add {
-                        lhs: Box::new(AbstractCell::Copy { offset: 0 }),
-                        rhs: Box::new(AbstractCell::Const { value: 2 }),
+                    value: Value::Add {
+                        lhs: Box::new(Value::Copy { offset: 0 }),
+                        rhs: Box::new(Value::Const { value: 2 }),
                     },
                 },
                 Effect::Input { id: 0 },
@@ -516,9 +394,9 @@ mod tests {
                 condition: Condition::WhileNonZero,
                 body: vec![
                     Ir::BasicBlock(BasicBlock {
-                        memory: VecDeque::from([AbstractCell::Add {
-                            lhs: Box::new(AbstractCell::Copy { offset: 0 }),
-                            rhs: Box::new(AbstractCell::Const { value: 255 }),
+                        memory: VecDeque::from([Value::Add {
+                            lhs: Box::new(Value::Copy { offset: 0 }),
+                            rhs: Box::new(Value::Const { value: 255 }),
                         }]),
                         effects: vec![],
                         origin_index: 0,
@@ -531,13 +409,13 @@ mod tests {
                         condition: Condition::WhileNonZero,
                         body: vec![Ir::BasicBlock(BasicBlock {
                             memory: VecDeque::from([
-                                AbstractCell::Add {
-                                    lhs: Box::new(AbstractCell::Copy { offset: -1 }),
-                                    rhs: Box::new(AbstractCell::Const { value: 255 }),
+                                Value::Add {
+                                    lhs: Box::new(Value::Copy { offset: -1 }),
+                                    rhs: Box::new(Value::Const { value: 255 }),
                                 },
-                                AbstractCell::Add {
-                                    lhs: Box::new(AbstractCell::Copy { offset: 0 }),
-                                    rhs: Box::new(AbstractCell::Const { value: 255 }),
+                                Value::Add {
+                                    lhs: Box::new(Value::Copy { offset: 0 }),
+                                    rhs: Box::new(Value::Const { value: 255 }),
                                 },
                             ]),
                             effects: vec![Effect::GuardShift { offset: -1 }],
@@ -549,9 +427,9 @@ mod tests {
                         })],
                     },
                     Ir::BasicBlock(BasicBlock {
-                        memory: VecDeque::from([AbstractCell::Add {
-                            lhs: Box::new(AbstractCell::Copy { offset: 0 }),
-                            rhs: Box::new(AbstractCell::Const { value: 1 }),
+                        memory: VecDeque::from([Value::Add {
+                            lhs: Box::new(Value::Copy { offset: 0 }),
+                            rhs: Box::new(Value::Const { value: 1 }),
                         }]),
                         effects: vec![],
                         origin_index: 0,
@@ -592,13 +470,13 @@ mod tests {
                 condition: Condition::WhileNonZero,
                 body: vec![Ir::BasicBlock(BasicBlock {
                     memory: VecDeque::from([
-                        AbstractCell::Add {
-                            lhs: Box::new(AbstractCell::Copy { offset: 0 }),
-                            rhs: Box::new(AbstractCell::Const { value: 255 }),
+                        Value::Add {
+                            lhs: Box::new(Value::Copy { offset: 0 }),
+                            rhs: Box::new(Value::Const { value: 255 }),
                         },
-                        AbstractCell::Add {
-                            lhs: Box::new(AbstractCell::Copy { offset: 1 }),
-                            rhs: Box::new(AbstractCell::Const { value: 1 }),
+                        Value::Add {
+                            lhs: Box::new(Value::Copy { offset: 1 }),
+                            rhs: Box::new(Value::Const { value: 1 }),
                         },
                     ]),
                     effects: vec![Effect::GuardShift { offset: 1 }],
@@ -634,7 +512,7 @@ mod tests {
         let mut ir = Ir::lower(&Ast::parse(src).unwrap());
         Ir::optimize_root(&mut ir);
         let expected = vec![Ir::BasicBlock(BasicBlock {
-            memory: VecDeque::from([AbstractCell::Const { value: 0 }]),
+            memory: VecDeque::from([Value::Const { value: 0 }]),
             effects: vec![],
             origin_index: 0,
             offset: 0,
@@ -649,10 +527,10 @@ mod tests {
         Ir::optimize_root(&mut ir);
         let expected = vec![Ir::BasicBlock(BasicBlock {
             memory: VecDeque::from([
-                AbstractCell::Const { value: 0 },
-                AbstractCell::Add {
-                    lhs: Box::new(AbstractCell::Copy { offset: 1 }),
-                    rhs: Box::new(AbstractCell::Copy { offset: 0 }),
+                Value::Const { value: 0 },
+                Value::Add {
+                    lhs: Box::new(Value::Copy { offset: 1 }),
+                    rhs: Box::new(Value::Copy { offset: 0 }),
                 },
             ]),
             effects: vec![Effect::GuardShift { offset: 1 }],
@@ -669,12 +547,12 @@ mod tests {
         Ir::optimize_root(&mut ir);
         let expected = vec![Ir::BasicBlock(BasicBlock {
             memory: VecDeque::from([
-                AbstractCell::Const { value: 0 },
-                AbstractCell::Add {
-                    lhs: Box::new(AbstractCell::Copy { offset: 1 }),
-                    rhs: Box::new(AbstractCell::Mul {
-                        lhs: Box::new(AbstractCell::Copy { offset: 0 }),
-                        rhs: Box::new(AbstractCell::Const { value: 3 }),
+                Value::Const { value: 0 },
+                Value::Add {
+                    lhs: Box::new(Value::Copy { offset: 1 }),
+                    rhs: Box::new(Value::Mul {
+                        lhs: Box::new(Value::Copy { offset: 0 }),
+                        rhs: Box::new(Value::Const { value: 3 }),
                     }),
                 },
             ]),
@@ -691,14 +569,14 @@ mod tests {
         let mut ir = Ir::lower(&Ast::parse(src).unwrap());
         Ir::optimize_root(&mut ir);
         let expected = vec![Ir::Loop {
-            condition: Condition::Count(AbstractCell::Copy { offset: 0 }),
+            condition: Condition::Count(Value::Copy { offset: 0 }),
             body: vec![Ir::BasicBlock(BasicBlock {
-                memory: VecDeque::from([AbstractCell::Add {
-                    lhs: Box::new(AbstractCell::Copy { offset: 0 }),
-                    rhs: Box::new(AbstractCell::Const { value: 255 }),
+                memory: VecDeque::from([Value::Add {
+                    lhs: Box::new(Value::Copy { offset: 0 }),
+                    rhs: Box::new(Value::Const { value: 255 }),
                 }]),
                 effects: vec![Effect::Output {
-                    value: AbstractCell::Copy { offset: 0 },
+                    value: Value::Copy { offset: 0 },
                 }],
                 origin_index: 0,
                 offset: 0,
