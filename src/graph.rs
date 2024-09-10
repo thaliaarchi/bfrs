@@ -49,6 +49,18 @@ pub struct Graph {
 #[cfg(debug_assertions)]
 static GRAPH_ID: AtomicU32 = AtomicU32::new(0);
 
+macro_rules! insert(($self:expr, $node:expr) => {{
+    let Ok(index) = u32::try_from($self.nodes.len()) else {
+        panic!("graph too large for u32 index");
+    };
+    $self.nodes.push($node);
+    NodeId {
+        index,
+        #[cfg(debug_assertions)]
+        graph_id: $self.graph_id,
+    }
+}});
+
 impl Graph {
     /// Constructs an empty graph.
     #[inline]
@@ -62,8 +74,17 @@ impl Graph {
         }
     }
 
-    /// Gets or inserts a node and returns its ID.
+    /// Inserts a node and returns its ID. [`Node::Copy`] and [`Node::Input`]
+    /// are not deduplicated.
     pub fn insert(&mut self, node: Node) -> NodeId {
+        match &node {
+            Node::Copy(_) | Node::Input { .. } => insert!(self, node),
+            Node::Const(_) | Node::Add(_, _) | Node::Mul(_, _) => self.get_or_insert(node),
+        }
+    }
+
+    /// Gets or inserts a node and returns its ID.
+    fn get_or_insert(&mut self, node: Node) -> NodeId {
         debug_assert!(self.assert_node(&node));
         let hash = self.hash_builder.hash_one(&node);
         let eq = |id: &NodeId| {
@@ -74,18 +95,11 @@ impl Graph {
             let key = unsafe { self.nodes.get_unchecked(id.as_usize()) };
             self.hash_builder.hash_one(key)
         };
-        let entry = self.table.entry(hash, eq, hasher).or_insert_with(|| {
-            let Ok(index) = u32::try_from(self.nodes.len()) else {
-                panic!("graph too large for u32 index");
-            };
-            self.nodes.push(node);
-            NodeId {
-                index,
-                #[cfg(debug_assertions)]
-                graph_id: self.graph_id,
-            }
-        });
-        *entry.get()
+        *self
+            .table
+            .entry(hash, eq, hasher)
+            .or_insert_with(|| insert!(self, node))
+            .get()
     }
 
     /// Gets the ID of a node.
@@ -207,9 +221,9 @@ mod tests {
         let id1 = g.insert(Node::Const(1));
         let id2 = g.insert(Node::Add(id0, id1));
         let id0b = g.insert(Node::Copy(0));
+        assert_ne!(id0, id0b);
         let id1b = g.insert(Node::Const(1));
-        let id2b = g.insert(Node::Add(id0b, id1b));
-        assert_eq!(id0, id0b);
+        let id2b = g.insert(Node::Add(id0, id1b));
         assert_eq!(id1, id1b);
         assert_eq!(id2, id2b);
     }
