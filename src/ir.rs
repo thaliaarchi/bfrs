@@ -276,21 +276,18 @@ impl BasicBlock {
     }
 
     fn reserve(&mut self, offset: isize) {
-        let index = self.origin_index as isize + offset;
-        if index < 0 {
-            let n = index.unsigned_abs();
+        if offset < self.min_offset() {
+            let n = (self.min_offset() - offset) as usize;
             self.memory.reserve(n);
-            let offset = offset - self.origin_index as isize;
-            for i in 0..n {
-                self.memory.push_front(Value::Copy(offset - i as isize));
+            for i in (offset..self.min_offset()).rev() {
+                self.memory.push_front(Value::Copy(i));
             }
             self.origin_index += n;
-        } else if index as usize >= self.memory.len() {
-            let n = index as usize - self.memory.len() + 1;
+        } else if offset >= self.max_offset() {
+            let n = (offset - self.max_offset()) as usize + 1;
             self.memory.reserve(n);
-            let offset = self.memory.len() - self.origin_index;
-            for i in 0..n {
-                self.memory.push_back(Value::Copy((offset + i) as isize));
+            for i in self.max_offset()..=offset {
+                self.memory.push_back(Value::Copy(i));
             }
         }
     }
@@ -602,5 +599,31 @@ mod tests {
             })],
         }];
         assert_eq!(ir, expected);
+    }
+
+    #[test]
+    fn reserve() {
+        let mut bb = BasicBlock::new();
+        bb.reserve(1);
+        bb.reserve(-2);
+        bb.reserve(2);
+        bb.reserve(-3);
+        let expected = BasicBlock {
+            memory: VecDeque::from([
+                Value::Copy(-3),
+                Value::Copy(-2),
+                Value::Copy(-1),
+                Value::Copy(0),
+                Value::Copy(1),
+                Value::Copy(2),
+            ]),
+            effects: vec![],
+            origin_index: 3,
+            offset: 0,
+            guarded_left: 0,
+            guarded_right: 0,
+            inputs: 0,
+        };
+        assert_eq!(bb, expected);
     }
 }
