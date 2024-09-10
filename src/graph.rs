@@ -1,3 +1,5 @@
+#[cfg(debug_assertions)]
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::{
     fmt::{self, Debug, Formatter},
     hash::BuildHasher,
@@ -23,7 +25,11 @@ pub enum Node {
 
 /// The ID of a node in a graph.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
-pub struct NodeId(u32);
+pub struct NodeId {
+    index: u32,
+    #[cfg(debug_assertions)]
+    graph_id: u32,
+}
 
 /// A graph of unique nodes, structured as an arena.
 ///
@@ -36,7 +42,12 @@ pub struct Graph {
     nodes: Vec<Node>,
     table: HashTable<NodeId>,
     hash_builder: DefaultHashBuilder,
+    #[cfg(debug_assertions)]
+    graph_id: u32,
 }
+
+#[cfg(debug_assertions)]
+static GRAPH_ID: AtomicU32 = AtomicU32::new(0);
 
 impl Graph {
     /// Constructs an empty graph.
@@ -46,6 +57,8 @@ impl Graph {
             nodes: Vec::new(),
             table: HashTable::new(),
             hash_builder: DefaultHashBuilder::default(),
+            #[cfg(debug_assertions)]
+            graph_id: GRAPH_ID.fetch_add(1, Ordering::Relaxed),
         }
     }
 
@@ -66,7 +79,11 @@ impl Graph {
                 panic!("graph too large for u32 index");
             };
             self.nodes.push(node);
-            NodeId(index)
+            NodeId {
+                index,
+                #[cfg(debug_assertions)]
+                graph_id: self.graph_id,
+            }
         });
         *entry.get()
     }
@@ -83,6 +100,10 @@ impl Graph {
     }
 
     fn assert_id(&self, id: NodeId) -> bool {
+        #[cfg(debug_assertions)]
+        if id.graph_id != self.graph_id {
+            return false;
+        }
         (id.as_usize()) < self.nodes.len()
     }
 
@@ -137,7 +158,7 @@ impl NodeId {
     /// Returns the index of this node ID.
     #[inline]
     pub fn as_usize(&self) -> usize {
-        self.0 as usize
+        self.index as usize
     }
 }
 
@@ -145,12 +166,14 @@ impl Debug for Graph {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "Graph ")?;
         f.debug_map()
-            .entries(
-                self.nodes
-                    .iter()
-                    .enumerate()
-                    .map(|(i, node)| (NodeId(i as u32), node)),
-            )
+            .entries(self.nodes.iter().enumerate().map(|(i, node)| {
+                let id = NodeId {
+                    index: i as u32,
+                    #[cfg(debug_assertions)]
+                    graph_id: self.graph_id,
+                };
+                (id, node)
+            }))
             .finish()
     }
 }
@@ -169,7 +192,7 @@ impl Debug for Node {
 
 impl Debug for NodeId {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "%{}", self.0)
+        write!(f, "%{}", self.index)
     }
 }
 
@@ -189,5 +212,27 @@ mod tests {
         assert_eq!(id0, id0b);
         assert_eq!(id1, id1b);
         assert_eq!(id2, id2b);
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    fn compare_mixed_ids() {
+        let mut g1 = Graph::new();
+        let mut g2 = Graph::new();
+        let id1 = g1.insert(Node::Const(1));
+        let id2 = g2.insert(Node::Const(2));
+        assert_eq!(id1.as_usize(), id2.as_usize());
+        assert_ne!(id1, id2);
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    #[should_panic]
+    fn insert_mixed_ids() {
+        let mut g1 = Graph::new();
+        let mut g2 = Graph::new();
+        let id1 = g1.insert(Node::Const(1));
+        let id2 = g1.insert(Node::Const(2));
+        g2.insert(Node::Add(id1, id2));
     }
 }
