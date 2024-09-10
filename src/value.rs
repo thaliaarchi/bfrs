@@ -39,15 +39,17 @@ impl Value {
                 match (b.as_ref(), rhs.as_ref()) {
                     (&Value::Const(b), &Value::Const(c)) => {
                         *rhs = Value::Const(b.wrapping_add(c));
-                        lhs = a;
+                        Value::add(a, rhs)
                     }
                     (&Value::Const(_), _) => {
                         *lhs = Value::add(a, rhs);
-                        rhs = b;
+                        Value::add(lhs, b)
                     }
-                    _ => *lhs = Value::Add(a, b),
+                    _ => {
+                        *lhs = Value::Add(a, b);
+                        Value::Add(lhs, rhs)
+                    }
                 }
-                Value::Add(lhs, rhs)
             }
             (_, Value::Add(..)) => {
                 let Value::Add(b, c) = mem::take(rhs.as_mut()) else {
@@ -88,15 +90,17 @@ impl Value {
                 match (b.as_ref(), rhs.as_ref()) {
                     (&Value::Const(b), &Value::Const(c)) => {
                         *rhs = Value::Const(b.wrapping_mul(c));
-                        lhs = a;
+                        Value::mul(a, rhs)
                     }
                     (&Value::Const(_), _) => {
                         *lhs = Value::mul(a, rhs);
-                        rhs = b;
+                        Value::mul(lhs, b)
                     }
-                    _ => *lhs = Value::Mul(a, b),
+                    _ => {
+                        *lhs = Value::Mul(a, b);
+                        Value::Mul(lhs, rhs)
+                    }
                 }
-                Value::Mul(lhs, rhs)
             }
             (_, Value::Mul(..)) => {
                 let Value::Mul(b, c) = mem::take(rhs.as_mut()) else {
@@ -170,5 +174,32 @@ impl Debug for Value {
                 group(f, rhs, matches!(**rhs, Value::Add(..) | Value::Mul(..)))
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::Value;
+
+    #[test]
+    fn idealize_add() {
+        let add = Value::add(
+            Box::new(Value::Add(
+                Box::new(Value::Copy(0)),
+                Box::new(Value::Const(1)),
+            )),
+            Box::new(Value::Add(
+                Box::new(Value::Copy(2)),
+                Box::new(Value::Const(3)),
+            )),
+        );
+        let expected = Value::Add(
+            Box::new(Value::Add(
+                Box::new(Value::Copy(0)),
+                Box::new(Value::Copy(2)),
+            )),
+            Box::new(Value::Const(4)),
+        );
+        assert_eq!(add, expected);
     }
 }
