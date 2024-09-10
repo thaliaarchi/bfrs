@@ -1,4 +1,8 @@
-use std::{collections::VecDeque, mem};
+use std::{
+    collections::VecDeque,
+    fmt::{self, Debug, Formatter},
+    mem,
+};
 
 use crate::{Ast, Value};
 
@@ -6,7 +10,7 @@ use crate::{Ast, Value};
 // - Concatenate flattened loops.
 // - Sort `Add` operands by offset.
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum Ir {
     /// A basic block of non-branching instructions.
     BasicBlock(BasicBlock),
@@ -30,7 +34,7 @@ pub enum Condition {
 }
 
 /// Abstract model of a sub-slice of memory and the effects in a basic block.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct BasicBlock {
     /// A sub-slice of the full memory.
     memory: VecDeque<Value>,
@@ -51,7 +55,7 @@ pub struct BasicBlock {
 }
 
 /// An observable effect.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum Effect {
     /// Printing a value.
     Output(Value),
@@ -314,6 +318,53 @@ impl BasicBlock {
             self.memory[index as usize].clone()
         } else {
             Value::Copy(offset)
+        }
+    }
+}
+
+impl Debug for Ir {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            Ir::BasicBlock(bb) => Debug::fmt(bb, f),
+            Ir::Loop { condition, body } => {
+                write!(f, "Loop({condition:?}) ")?;
+                f.debug_list().entries(body).finish()
+            }
+        }
+    }
+}
+
+impl Debug for BasicBlock {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        struct Memory<'a>(&'a BasicBlock);
+        impl Debug for Memory<'_> {
+            fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+                f.debug_map()
+                    .entries(
+                        (self.0.min_offset()..)
+                            .map(Value::Copy)
+                            .zip(self.0.memory.iter())
+                            .filter(|(k, v)| k != *v),
+                    )
+                    .finish()
+            }
+        }
+        f.debug_struct("BasicBlock")
+            .field("memory", &Memory(self))
+            .field("effects", &self.effects)
+            .field("offset", &self.offset)
+            .field("guarded", &(self.guarded_left..=self.guarded_right))
+            .field("inputs", &self.inputs)
+            .finish()
+    }
+}
+
+impl Debug for Effect {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            Effect::Output(v) => write!(f, "output {v:?}"),
+            Effect::Input { id } => write!(f, "input {id}"),
+            Effect::GuardShift(offset) => write!(f, "guard_shift {offset}"),
         }
     }
 }

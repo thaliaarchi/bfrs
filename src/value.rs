@@ -1,9 +1,12 @@
-use std::mem;
+use std::{
+    fmt::{self, Debug, Formatter},
+    mem,
+};
 
 use crate::ir::BasicBlock;
 
 /// Abstract model of a cell.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum Value {
     /// Copy the value of a cell from before this basic block.
     Copy(isize),
@@ -141,5 +144,31 @@ impl Value {
 impl Default for Value {
     fn default() -> Self {
         Value::Copy(isize::MAX)
+    }
+}
+
+impl Debug for Value {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        fn group(f: &mut Formatter<'_>, v: &Value, grouped: bool) -> fmt::Result {
+            if grouped {
+                write!(f, "({v:?})")
+            } else {
+                write!(f, "{v:?}")
+            }
+        }
+        match self {
+            Value::Copy(offset) => write!(f, "%{offset}"),
+            Value::Const(value) => write!(f, "{value}"),
+            Value::Input { id } => write!(f, "in{id}"),
+            Value::Add(lhs, rhs) => {
+                write!(f, "{lhs:?} + ")?;
+                group(f, rhs, matches!(**rhs, Value::Add(..)))
+            }
+            Value::Mul(lhs, rhs) => {
+                group(f, lhs, matches!(**lhs, Value::Add(..)))?;
+                write!(f, " * ")?;
+                group(f, rhs, matches!(**rhs, Value::Add(..) | Value::Mul(..)))
+            }
+        }
     }
 }
