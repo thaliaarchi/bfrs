@@ -68,6 +68,7 @@ impl Value {
             _ => self,
         };
         match lhs {
+            Value::Const(0) => {}
             Value::Const(lhs) => *lhs = lhs.wrapping_add(value),
             _ => {
                 let lhs = mem::take(self);
@@ -83,6 +84,7 @@ impl Value {
         match (lhs.as_ref(), rhs.as_ref()) {
             (&Value::Const(lhs), &Value::Const(rhs)) => Value::Const(lhs.wrapping_mul(rhs)),
             (_, Value::Const(1)) => *lhs,
+            (_, Value::Const(0)) => Value::Const(0),
             (Value::Mul(..), _) => {
                 let Value::Mul(a, b) = mem::take(lhs.as_mut()) else {
                     unreachable!();
@@ -110,6 +112,21 @@ impl Value {
                 Value::mul(rhs, c)
             }
             _ => Value::Mul(lhs, rhs),
+        }
+    }
+
+    pub fn mul_const(&mut self, value: u8) {
+        let lhs = match self {
+            Value::Mul(_, rhs) => rhs.as_mut(),
+            _ => self,
+        };
+        match lhs {
+            Value::Const(1) => {}
+            Value::Const(lhs) => *lhs = lhs.wrapping_mul(value),
+            _ => {
+                let lhs = mem::take(self);
+                *self = Value::mul(Box::new(lhs), Box::new(Value::Const(value)));
+            }
         }
     }
 
