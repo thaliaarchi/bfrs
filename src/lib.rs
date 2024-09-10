@@ -1,4 +1,5 @@
 mod ast;
+pub mod graph;
 pub mod ir;
 mod value;
 
