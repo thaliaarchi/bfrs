@@ -8,28 +8,7 @@ use std::{
 
 use hashbrown::{hash_map::DefaultHashBuilder, HashTable};
 
-/// A node in a graph.
-#[derive(Clone, PartialEq, Eq, Hash)]
-pub enum Node {
-    /// Copy the value from the cell at the offset.
-    Copy(isize),
-    /// A constant value.
-    Const(u8),
-    /// A value read from the user.
-    Input { id: usize },
-    /// Addition of two values.
-    Add(NodeId, NodeId),
-    /// Multiplication of two values.
-    Mul(NodeId, NodeId),
-}
-
-/// The ID of a node in a graph.
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
-pub struct NodeId {
-    index: u32,
-    #[cfg(debug_assertions)]
-    graph_id: u32,
-}
+use crate::node::Node;
 
 /// A graph of unique nodes, structured as an arena.
 ///
@@ -42,6 +21,14 @@ pub struct Graph {
     nodes: Vec<Node>,
     table: HashTable<NodeId>,
     hash_builder: DefaultHashBuilder,
+    #[cfg(debug_assertions)]
+    graph_id: u32,
+}
+
+/// The ID of a node in a graph.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct NodeId {
+    index: u32,
     #[cfg(debug_assertions)]
     graph_id: u32,
 }
@@ -151,20 +138,6 @@ impl Default for Graph {
     #[inline]
     fn default() -> Self {
         Graph::new()
-    }
-}
-
-impl Node {
-    /// Gets or inserts this node into a graph and returns its ID.
-    #[inline]
-    pub fn insert(self, g: &mut Graph) -> NodeId {
-        g.insert(self)
-    }
-
-    /// Gets the ID of this node in a graph.
-    #[inline]
-    pub fn get(&self, g: &Graph) -> Option<NodeId> {
-        g.get(self)
     }
 }
 

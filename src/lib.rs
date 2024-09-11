@@ -1,6 +1,7 @@
 mod ast;
 pub mod graph;
 pub mod ir;
+pub mod node;
 mod value;
 
 pub use ast::Ast;
