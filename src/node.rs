@@ -21,48 +21,59 @@ impl Node {
     /// Inserts this node into the graph and transforms it to its ideal
     /// representation.
     pub fn idealize(self, g: &mut Graph) -> NodeId {
-        let node = match self {
-            Node::Copy(_) | Node::Const(_) | Node::Input { .. } => self,
+        match self {
+            Node::Copy(_) | Node::Const(_) | Node::Input { .. } => self.insert(g),
             Node::Add(mut lhs, mut rhs) => {
-                if let Node::Const(_) = &g[lhs] {
+                if let Node::Const(a) = g[lhs] {
+                    if let Node::Const(b) = g[rhs] {
+                        return Node::Const(a.wrapping_add(b)).insert(g);
+                    }
                     mem::swap(&mut lhs, &mut rhs);
                 }
                 match (&g[lhs], &g[rhs]) {
-                    (&Node::Const(lhs), &Node::Const(rhs)) => Node::Const(lhs.wrapping_add(rhs)),
-                    (_, Node::Const(0)) => return lhs,
-                    (_, _) if lhs == rhs => Node::Mul(lhs, Node::Const(2).insert(g)),
+                    (_, Node::Const(0)) => lhs,
+                    (_, _) if lhs == rhs => Node::Mul(lhs, Node::Const(2).insert(g)).idealize(g),
+                    (_, &Node::Add(b, c)) => {
+                        Node::Add(Node::Add(lhs, b).idealize(g), c).idealize(g)
+                    }
                     (&Node::Add(a, b), _) => match (&g[b], &g[rhs]) {
                         (&Node::Const(b), &Node::Const(c)) => {
-                            Node::Add(a, Node::Const(b.wrapping_add(c)).insert(g))
+                            Node::Add(a, Node::Const(b.wrapping_add(c)).insert(g)).idealize(g)
                         }
-                        (&Node::Const(_), _) => Node::Add(Node::Add(a, rhs).insert(g), b),
-                        _ => Node::Add(Node::Add(a, b).insert(g), rhs),
+                        (&Node::Const(_), _) => {
+                            Node::Add(Node::Add(a, rhs).idealize(g), b).idealize(g)
+                        }
+                        _ => Node::Add(lhs, rhs).insert(g),
                     },
-                    (_, &Node::Add(b, c)) => Node::Add(Node::Add(lhs, b).insert(g), c),
-                    _ => Node::Add(lhs, rhs),
+                    _ => Node::Add(lhs, rhs).insert(g),
                 }
             }
             Node::Mul(mut lhs, mut rhs) => {
-                if let Node::Const(_) = &g[lhs] {
+                if let Node::Const(a) = g[lhs] {
+                    if let Node::Const(b) = g[rhs] {
+                        return Node::Const(a.wrapping_mul(b)).insert(g);
+                    }
                     mem::swap(&mut lhs, &mut rhs);
                 }
                 match (&g[lhs], &g[rhs]) {
-                    (&Node::Const(lhs), &Node::Const(rhs)) => Node::Const(lhs.wrapping_mul(rhs)),
-                    (_, Node::Const(1)) => return lhs,
-                    (_, Node::Const(0)) => Node::Const(0),
+                    (_, Node::Const(1)) => lhs,
+                    (_, Node::Const(0)) => Node::Const(0).insert(g),
+                    (_, &Node::Mul(b, c)) => {
+                        Node::Mul(Node::Mul(lhs, b).idealize(g), c).idealize(g)
+                    }
                     (&Node::Mul(a, b), _) => match (&g[b], &g[rhs]) {
                         (&Node::Const(b), &Node::Const(c)) => {
-                            Node::Mul(a, Node::Const(b.wrapping_mul(c)).insert(g))
+                            Node::Mul(a, Node::Const(b.wrapping_mul(c)).insert(g)).idealize(g)
                         }
-                        (&Node::Const(_), _) => Node::Mul(Node::Mul(a, rhs).insert(g), b),
-                        _ => Node::Mul(Node::Mul(a, b).insert(g), rhs),
+                        (&Node::Const(_), _) => {
+                            Node::Mul(Node::Mul(a, rhs).idealize(g), b).idealize(g)
+                        }
+                        _ => Node::Mul(lhs, rhs).insert(g),
                     },
-                    (_, &Node::Mul(b, c)) => Node::Mul(Node::Mul(lhs, b).insert(g), c),
-                    _ => Node::Mul(lhs, rhs),
+                    _ => Node::Mul(lhs, rhs).insert(g),
                 }
             }
-        };
-        g.insert(node)
+        }
     }
 
     /// Gets or inserts this node into a graph and returns its ID.
@@ -75,5 +86,24 @@ impl Node {
     #[inline]
     pub fn find(&self, g: &Graph) -> Option<NodeId> {
         g.find(self)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{graph::Graph, node::Node};
+
+    #[test]
+    fn idealize_add() {
+        let g = &mut Graph::new();
+        let x = Node::Copy(0).idealize(g);
+        let y = Node::Copy(2).idealize(g);
+        let add = Node::Add(
+            Node::Add(x, Node::Const(1).idealize(g)).idealize(g),
+            Node::Add(y, Node::Const(3).idealize(g)).idealize(g),
+        )
+        .idealize(g);
+        let expected = Node::Add(Node::Add(x, y).insert(g), Node::Const(4).insert(g)).insert(g);
+        assert_eq!(g.get(add), g.get(expected));
     }
 }
