@@ -1,10 +1,13 @@
 use std::{
     collections::VecDeque,
     fmt::{self, Debug, Formatter},
-    mem,
 };
 
-use crate::{Ast, Value};
+use crate::{
+    graph::{Graph, NodeId},
+    node::Node,
+    Ast,
+};
 
 // TODO:
 // - Concatenate flattened loops.
@@ -30,14 +33,16 @@ pub enum Condition {
     /// Execute if the current cell is non-zero.
     IfNonZero,
     /// Loop a fixed number of times.
-    Count(Value),
+    Count(NodeId),
 }
 
 /// Abstract model of a sub-slice of memory and the effects in a basic block.
 #[derive(Clone, PartialEq, Eq)]
 pub struct BasicBlock {
-    /// A sub-slice of the full memory.
-    pub(crate) memory: VecDeque<Value>,
+    /// The sub-slice of memory, that is modified by this block.
+    pub(crate) memory: VecDeque<NodeId>,
+    /// The input sub-slice of memory, that is read by this block.
+    pub(crate) memory_inputs: VecDeque<NodeId>,
     /// A sequence of effects in a basic block.
     pub(crate) effects: Vec<Effect>,
     /// The index in `memory` of the initial cell at the start of this basic
@@ -58,21 +63,21 @@ pub struct BasicBlock {
 #[derive(Clone, PartialEq, Eq)]
 pub enum Effect {
     /// Printing a value.
-    Output(Value),
-    /// Reading from the user.
-    Input { id: usize },
+    Output(NodeId),
+    /// Reading from the user. The node is always `Node::Input`.
+    Input(NodeId),
     /// Guarding that a shift can be performed to an offset.
     GuardShift(isize),
 }
 
 impl Ir {
-    pub fn lower(ast: &[Ast]) -> Vec<Self> {
+    pub fn lower(ast: &[Ast], g: &mut Graph) -> Vec<Self> {
         let mut ir = vec![];
         for inst in ast {
             if let Ast::Loop(body) = inst {
                 ir.push(Ir::Loop {
                     condition: Condition::WhileNonZero,
-                    body: Ir::lower(body),
+                    body: Ir::lower(body, g),
                 });
             } else {
                 if !matches!(ir.last(), Some(Ir::BasicBlock { .. })) {
@@ -81,63 +86,60 @@ impl Ir {
                 let Some(Ir::BasicBlock(bb)) = ir.last_mut() else {
                     unreachable!();
                 };
-                bb.apply(inst);
+                bb.apply(inst, g);
             }
         }
         ir
     }
 
-    pub fn optimize_root(ir: &mut [Ir]) {
+    pub fn optimize_root(ir: &mut [Ir], g: &mut Graph) {
         for node in ir {
-            node.optimize();
+            node.optimize(g);
         }
     }
 
     /// Optimizes decrement loops and if-style loops.
-    pub fn optimize(&mut self) {
+    pub fn optimize(&mut self, g: &mut Graph) {
         if let Ir::Loop { condition, body } = self {
             if let [Ir::BasicBlock(bb)] = body.as_mut_slice() {
                 if bb.offset == 0 {
-                    if let Some(Value::Add(lhs, rhs)) = bb.get(0) {
-                        if let (Value::Copy(0), &Value::Const(rhs)) = (lhs.as_ref(), rhs.as_ref()) {
-                            if let Some(iterations) = mod_inverse(rhs.wrapping_neg()) {
-                                let mut addend = Value::Copy(0);
-                                if iterations != 1 {
-                                    addend = Value::mul(
-                                        Box::new(addend),
-                                        Box::new(Value::Const(iterations)),
-                                    );
-                                }
-                                if !bb
-                                    .memory
-                                    .iter()
-                                    .zip(bb.min_offset()..)
-                                    .any(|(cell, offset)| {
-                                        cell.references_other(offset)
-                                            || matches!(cell, Value::Input { .. } | Value::Mul(..))
-                                    })
-                                {
-                                    if bb
-                                        .effects
-                                        .iter()
-                                        .all(|effect| matches!(effect, Effect::GuardShift(_)))
-                                    {
-                                        *bb.get_mut(0).unwrap() = Value::Const(0);
-                                        for cell in &mut bb.memory {
-                                            if let Value::Add(_, rhs) = cell {
-                                                let rhs1 = mem::take(rhs.as_mut());
-                                                *rhs = Box::new(Value::mul(
-                                                    Box::new(rhs1),
-                                                    Box::new(addend.clone()),
-                                                ));
+                    if let Some(current) = bb.get(0) {
+                        if let Node::Add(lhs, rhs) = g[current] {
+                            if let (Node::Copy(0), &Node::Const(rhs)) = (&g[lhs], &g[rhs]) {
+                                if let Some(iterations) = mod_inverse(rhs.wrapping_neg()) {
+                                    let addend = Node::Mul(lhs, Node::Const(iterations).insert(g))
+                                        .idealize(g);
+                                    if !bb.memory.iter().zip(bb.min_offset()..).any(
+                                        |(&cell, offset)| {
+                                            cell.get(g).references_other(offset)
+                                                || matches!(
+                                                    g[cell],
+                                                    Node::Input { .. } | Node::Mul(..)
+                                                )
+                                        },
+                                    ) {
+                                        if bb
+                                            .effects
+                                            .iter()
+                                            .all(|effect| matches!(effect, Effect::GuardShift(_)))
+                                        {
+                                            *bb.get_mut(0).unwrap() = Node::Const(0).insert(g);
+                                            for cell in &mut bb.memory {
+                                                if let Node::Add(lhs, rhs) = g[*cell] {
+                                                    *cell = Node::Add(
+                                                        lhs,
+                                                        Node::Mul(rhs, addend).idealize(g),
+                                                    )
+                                                    .idealize(g);
+                                                }
                                             }
+                                            let bb = body.drain(..).next().unwrap();
+                                            *self = bb;
+                                            return;
                                         }
-                                        let bb = body.drain(..).next().unwrap();
-                                        *self = bb;
-                                        return;
                                     }
+                                    *condition = Condition::Count(addend);
                                 }
-                                *condition = Condition::Count(addend);
                             }
                         }
                     }
@@ -145,9 +147,11 @@ impl Ir {
             }
             if let Some(Ir::BasicBlock(last)) = body.last() {
                 if let Some(offset) = Ir::offset_root(body) {
-                    if last.get(offset) == Some(&Value::Const(0)) {
-                        *condition = Condition::IfNonZero;
-                        return;
+                    if let Some(v) = last.get(offset) {
+                        if g[v] == Node::Const(0) {
+                            *condition = Condition::IfNonZero;
+                            return;
+                        }
                     }
                 }
             }
@@ -184,6 +188,7 @@ impl BasicBlock {
     pub fn new() -> Self {
         BasicBlock {
             memory: VecDeque::new(),
+            memory_inputs: VecDeque::new(),
             effects: Vec::new(),
             origin_index: 0,
             offset: 0,
@@ -194,7 +199,7 @@ impl BasicBlock {
     }
 
     /// Applies an operation to the basic block.
-    pub fn apply(&mut self, op: &Ast) {
+    pub fn apply(&mut self, op: &Ast, g: &mut Graph) {
         match op {
             Ast::Right => {
                 self.offset += 1;
@@ -210,15 +215,22 @@ impl BasicBlock {
                     self.effects.push(Effect::GuardShift(self.guarded_left));
                 }
             }
-            Ast::Inc => self.cell_mut().add_const(1),
-            Ast::Dec => self.cell_mut().add_const(255),
+            Ast::Inc => {
+                let cell = self.cell_mut(g);
+                *cell = Node::Add(*cell, Node::Const(1).insert(g)).idealize(g)
+            }
+            Ast::Dec => {
+                let cell = self.cell_mut(g);
+                *cell = Node::Add(*cell, Node::Const(255).insert(g)).idealize(g)
+            }
             Ast::Output => {
-                let value = self.cell_mut().clone();
+                let value = self.cell(self.offset, g);
                 self.effects.push(Effect::Output(value));
             }
             Ast::Input => {
-                *self.cell_mut() = Value::Input { id: self.inputs };
-                self.effects.push(Effect::Input { id: self.inputs });
+                let input = Node::Input { id: self.inputs }.insert(g);
+                *self.cell_mut(g) = input;
+                self.effects.push(Effect::Input(input));
                 self.inputs += 1;
             }
             Ast::Loop(_) => panic!("loops must be lowered separately"),
@@ -227,14 +239,22 @@ impl BasicBlock {
 
     /// Concatenates two basic blocks. Applies the operations of `other` to
     /// `self`, draining `other`.
-    pub fn concat(&mut self, other: &mut Self) {
+    pub fn concat(&mut self, other: &mut Self, g: &mut Graph) {
         self.effects.reserve(other.effects.len());
         for mut effect in other.effects.drain(..) {
             match &mut effect {
                 Effect::Output(value) => {
-                    *value = mem::take(value).rebase(self);
+                    *value = value.rebase(self, g);
                 }
-                Effect::Input { id } => *id += self.inputs,
+                Effect::Input(value) => {
+                    let Node::Input { id } = g[*value] else {
+                        panic!("invalid node in input");
+                    };
+                    *value = Node::Input {
+                        id: id + self.inputs,
+                    }
+                    .insert(g);
+                }
                 Effect::GuardShift(offset) => {
                     *offset += self.offset;
                     if *offset < self.guarded_left {
@@ -249,11 +269,11 @@ impl BasicBlock {
             self.effects.push(effect);
         }
         for cell in &mut other.memory {
-            *cell = mem::take(cell).rebase(self);
+            *cell = cell.rebase(self, g);
         }
         let min_offset = self.offset + other.min_offset();
-        self.reserve(min_offset);
-        self.reserve((self.offset + other.max_offset() - 1).max(min_offset));
+        self.reserve(min_offset, g);
+        self.reserve((self.offset + other.max_offset() - 1).max(min_offset), g);
         for (i, cell) in other.memory.drain(..).enumerate() {
             self.memory[(self.origin_index as isize + min_offset) as usize + i] = cell;
         }
@@ -279,47 +299,48 @@ impl BasicBlock {
         self.inputs
     }
 
-    fn reserve(&mut self, offset: isize) {
+    fn reserve(&mut self, offset: isize, g: &mut Graph) {
         if offset < self.min_offset() {
             let n = (self.min_offset() - offset) as usize;
             self.memory.reserve(n);
+            self.memory_inputs.reserve(n);
             for i in (offset..self.min_offset()).rev() {
-                self.memory.push_front(Value::Copy(i));
+                let copy = Node::Copy(i).insert(g);
+                self.memory.push_front(copy);
+                self.memory_inputs.push_front(copy);
             }
             self.origin_index += n;
         } else if offset >= self.max_offset() {
             let n = (offset - self.max_offset()) as usize + 1;
             self.memory.reserve(n);
             for i in self.max_offset()..=offset {
-                self.memory.push_back(Value::Copy(i));
+                let copy = Node::Copy(i).insert(g);
+                self.memory.push_back(copy);
+                self.memory_inputs.push_back(copy);
             }
         }
     }
 
-    fn get(&self, offset: isize) -> Option<&Value> {
+    fn get(&self, offset: isize) -> Option<NodeId> {
         usize::try_from(self.origin_index as isize + offset)
             .ok()
-            .and_then(|i| self.memory.get(i))
+            .and_then(|i| self.memory.get(i).copied())
     }
 
-    fn get_mut(&mut self, offset: isize) -> Option<&mut Value> {
+    fn get_mut(&mut self, offset: isize) -> Option<&mut NodeId> {
         usize::try_from(self.origin_index as isize + offset)
             .ok()
             .and_then(|i| self.memory.get_mut(i))
     }
 
-    fn cell_mut(&mut self) -> &mut Value {
-        self.reserve(self.offset);
-        &mut self.memory[(self.origin_index as isize + self.offset) as usize]
+    pub(crate) fn cell(&mut self, offset: isize, g: &mut Graph) -> NodeId {
+        self.reserve(offset, g);
+        self.memory[(self.origin_index as isize + offset) as usize]
     }
 
-    pub(crate) fn cell_copy(&self, offset: isize) -> Value {
-        let index = self.origin_index as isize - offset;
-        if 0 <= index && index < self.memory.len() as isize {
-            self.memory[index as usize].clone()
-        } else {
-            Value::Copy(offset)
-        }
+    fn cell_mut(&mut self, g: &mut Graph) -> &mut NodeId {
+        self.reserve(self.offset, g);
+        &mut self.memory[(self.origin_index as isize + self.offset) as usize]
     }
 }
 
@@ -343,9 +364,8 @@ impl Debug for BasicBlock {
                 f.debug_map()
                     .entries(
                         (self.0.min_offset()..)
-                            .map(Value::Copy)
                             .zip(self.0.memory.iter())
-                            .filter(|(k, v)| k != *v),
+                            .map(|(offset, &node)| (offset, node)),
                     )
                     .finish()
             }
@@ -364,7 +384,7 @@ impl Debug for Effect {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             Effect::Output(v) => write!(f, "output {v:?}"),
-            Effect::Input { id } => write!(f, "input {id}"),
+            Effect::Input(v) => write!(f, "input {v:?}"),
             Effect::GuardShift(offset) => write!(f, "guard_shift {offset}"),
         }
     }
@@ -409,60 +429,61 @@ fn mod_inverse(value: u8) -> Option<u8> {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::VecDeque;
-
     use crate::{
+        graph::Graph,
         ir::{BasicBlock, Ir},
-        Ast, Value,
+        Ast,
     };
 
     #[test]
     fn apply_ops() {
+        let g = &mut Graph::new();
         let mut bb = BasicBlock::new();
-        bb.apply(&Ast::Inc);
-        bb.apply(&Ast::Inc);
-        bb.apply(&Ast::Right);
-        bb.apply(&Ast::Left);
-        bb.apply(&Ast::Left);
-        bb.apply(&Ast::Dec);
-        bb.apply(&Ast::Right);
-        bb.apply(&Ast::Output);
-        bb.apply(&Ast::Input);
-        bb.apply(&Ast::Right);
-        bb.apply(&Ast::Right);
+        bb.apply(&Ast::Inc, g);
+        bb.apply(&Ast::Inc, g);
+        bb.apply(&Ast::Right, g);
+        bb.apply(&Ast::Left, g);
+        bb.apply(&Ast::Left, g);
+        bb.apply(&Ast::Dec, g);
+        bb.apply(&Ast::Right, g);
+        bb.apply(&Ast::Output, g);
+        bb.apply(&Ast::Input, g);
+        bb.apply(&Ast::Right, g);
+        bb.apply(&Ast::Right, g);
         let expect = "
             guard_shift 1
             guard_shift -1
-            output %0 + 2
-            input 0
+            output @0 + 2
+            in0 = input
             guard_shift 2
-            %-1 = %-1 + 255
-            %0 = in0
+            @-1 = @-1 + 255
+            @0 = in0
             offset 2
         ";
-        assert!(bb.compare_pretty(expect));
+        assert!(bb.compare_pretty(expect, g));
     }
 
     #[test]
     fn lower() {
         // Excerpt from https://www.brainfuck.org/collatz.b
+        let mut g = Graph::new();
         let src = b"[-[<->-]+[<<<<]]<[>+<-]";
         let ast = Ast::parse(src).unwrap();
-        let ir = Ir::lower(&ast);
+        let ir = Ir::lower(&ast, &mut g);
         let expect = "
-            while %0 != 0 {
+            while @0 != 0 {
                 {
-                    %0 = %0 + 255
+                    @0 = @0 + 255
                 }
-                while %0 != 0 {
+                while @0 != 0 {
                     guard_shift -1
-                    %-1 = %-1 + 255
-                    %0 = %0 + 255
+                    @-1 = @-1 + 255
+                    @0 = @0 + 255
                 }
                 {
-                    %0 = %0 + 1
+                    @0 = @0 + 1
                 }
-                while %0 != 0 {
+                while @0 != 0 {
                     guard_shift -1
                     guard_shift -2
                     guard_shift -3
@@ -474,139 +495,130 @@ mod tests {
                 guard_shift -1
                 offset -1
             }
-            while %0 != 0 {
+            while @0 != 0 {
                 guard_shift 1
-                %0 = %0 + 255
-                %1 = %1 + 1
+                @0 = @0 + 255
+                @1 = @1 + 1
             }
         ";
-        assert!(Ir::compare_pretty_root(&ir, expect));
+        assert!(Ir::compare_pretty_root(&ir, expect, &g));
     }
 
     #[test]
     fn concat() {
         let src1 = "<+>,-.>";
         let src2 = ",<-";
-        let ir1 = Ir::lower(&Ast::parse(src1.as_bytes()).unwrap());
-        let ir2 = Ir::lower(&Ast::parse(src2.as_bytes()).unwrap());
+        let g = &mut Graph::new();
+        let ir1 = Ir::lower(&Ast::parse(src1.as_bytes()).unwrap(), g);
+        let ir2 = Ir::lower(&Ast::parse(src2.as_bytes()).unwrap(), g);
         let (mut bb1, mut bb2) = match (&*ir1, &*ir2) {
             ([Ir::BasicBlock(bb1)], [Ir::BasicBlock(bb2)]) => (bb1.clone(), bb2.clone()),
             _ => panic!("not single basic blocks: {ir1:?}, {ir2:?}"),
         };
-        bb1.concat(&mut bb2);
-        let ir12 = Ir::lower(&Ast::parse((src1.to_owned() + src2).as_bytes()).unwrap());
-        assert_eq!(vec![Ir::BasicBlock(bb1)], ir12);
+        bb1.concat(&mut bb2, g);
+        let expect = "
+            guard_shift -1
+            in0 = input
+            output in0 + 255
+            guard_shift 1
+            in1 = input
+            @-1 = @-1 + 1
+            @0 = in0 + 254
+            @1 = in1
+        ";
+        assert!(bb1.compare_pretty(expect, g));
     }
 
     #[test]
     fn optimize() {
         let src = b"[-]";
-        let mut ir = Ir::lower(&Ast::parse(src).unwrap());
-        Ir::optimize_root(&mut ir);
+        let mut g = Graph::new();
+        let mut ir = Ir::lower(&Ast::parse(src).unwrap(), &mut g);
+        Ir::optimize_root(&mut ir, &mut g);
         let expect = "
-            %0 = 0
+            @0 = 0
         ";
-        assert!(Ir::compare_pretty_root(&ir, expect));
+        assert!(Ir::compare_pretty_root(&ir, expect, &g));
 
         let src = b"[->+<]";
-        let mut ir = Ir::lower(&Ast::parse(src).unwrap());
-        Ir::optimize_root(&mut ir);
+        let mut g = Graph::new();
+        let mut ir = Ir::lower(&Ast::parse(src).unwrap(), &mut g);
+        Ir::optimize_root(&mut ir, &mut g);
         let expect = "
             guard_shift 1
-            %0 = 0
-            %1 = %1 + %0
+            @0 = 0
+            @1 = @1 + @0
         ";
-        assert!(Ir::compare_pretty_root(&ir, expect));
+        assert!(Ir::compare_pretty_root(&ir, expect, &g));
 
         let src = b"[->+++<]";
-        let mut ir = Ir::lower(&Ast::parse(src).unwrap());
-        Ir::optimize_root(&mut ir);
+        let mut g = Graph::new();
+        let mut ir = Ir::lower(&Ast::parse(src).unwrap(), &mut g);
+        Ir::optimize_root(&mut ir, &mut g);
         let expect = "
             guard_shift 1
-            %0 = 0
-            %1 = %1 + %0 * 3
+            @0 = 0
+            @1 = @1 + @0 * 3
         ";
-        assert!(Ir::compare_pretty_root(&ir, expect));
+        assert!(Ir::compare_pretty_root(&ir, expect, &g));
 
         let src = b"[.-]";
-        let mut ir = Ir::lower(&Ast::parse(src).unwrap());
-        Ir::optimize_root(&mut ir);
+        let mut g = Graph::new();
+        let mut ir = Ir::lower(&Ast::parse(src).unwrap(), &mut g);
+        Ir::optimize_root(&mut ir, &mut g);
         let expect = "
-            repeat %0 times {
-                output %0
-                %0 = %0 + 255
+            repeat @0 times {
+                output @0
+                @0 = @0 + 255
             }
         ";
-        assert!(Ir::compare_pretty_root(&ir, expect));
+        assert!(Ir::compare_pretty_root(&ir, expect, &g));
     }
 
     #[test]
     fn closed_form_loops() {
         let src = b"[->-->+++<<]";
-        let mut ir = Ir::lower(&Ast::parse(src).unwrap());
-        Ir::optimize_root(&mut ir);
+        let mut g = Graph::new();
+        let mut ir = Ir::lower(&Ast::parse(src).unwrap(), &mut g);
+        Ir::optimize_root(&mut ir, &mut g);
         let expect = "
             guard_shift 1
             guard_shift 2
-            %0 = 0
-            %1 = %1 + %0 * 254
-            %2 = %2 + %0 * 3
+            @0 = 0
+            @1 = @1 + @0 * 254
+            @2 = @2 + @0 * 3
         ";
-        assert!(Ir::compare_pretty_root(&ir, expect));
+        assert!(Ir::compare_pretty_root(&ir, expect, &g));
 
         let src = b"[--->+>++>->--<<<<]";
-        let mut ir = Ir::lower(&Ast::parse(src).unwrap());
-        Ir::optimize_root(&mut ir);
+        let mut g = Graph::new();
+        let mut ir = Ir::lower(&Ast::parse(src).unwrap(), &mut g);
+        Ir::optimize_root(&mut ir, &mut g);
         let expect = "
             guard_shift 1
             guard_shift 2
             guard_shift 3
             guard_shift 4
-            %0 = 0
-            %1 = %1 + %0 * 171
-            %2 = %2 + %0 * 86
-            %3 = %3 + %0 * 85
-            %4 = %4 + %0 * 170
+            @0 = 0
+            @1 = @1 + @0 * 171
+            @2 = @2 + @0 * 86
+            @3 = @3 + @0 * 85
+            @4 = @4 + @0 * 170
         ";
-        assert!(Ir::compare_pretty_root(&ir, expect));
+        assert!(Ir::compare_pretty_root(&ir, expect, &g));
 
         let src = b"[+++++++++++++++.>++<]";
-        let mut ir = Ir::lower(&Ast::parse(src).unwrap());
-        Ir::optimize_root(&mut ir);
+        let mut g = Graph::new();
+        let mut ir = Ir::lower(&Ast::parse(src).unwrap(), &mut g);
+        Ir::optimize_root(&mut ir, &mut g);
         let expect = "
-            repeat %0 * 17 times {
-                output %0 + 15
+            repeat @0 * 17 times {
+                output @0 + 15
                 guard_shift 1
-                %0 = %0 + 15
-                %1 = %1 + 2
+                @0 = @0 + 15
+                @1 = @1 + 2
             }
         ";
-        assert!(Ir::compare_pretty_root(&ir, expect));
-    }
-
-    #[test]
-    fn reserve() {
-        let mut bb = BasicBlock::new();
-        bb.reserve(1);
-        bb.reserve(-2);
-        bb.reserve(2);
-        bb.reserve(-3);
-        let expect = BasicBlock {
-            memory: VecDeque::from([
-                Value::Copy(-3),
-                Value::Copy(-2),
-                Value::Copy(-1),
-                Value::Copy(0),
-                Value::Copy(1),
-                Value::Copy(2),
-            ]),
-            effects: vec![],
-            origin_index: 3,
-            offset: 0,
-            guarded_left: 0,
-            guarded_right: 0,
-            inputs: 0,
-        };
-        assert_eq!(bb, expect);
+        assert!(Ir::compare_pretty_root(&ir, expect, &g));
     }
 }

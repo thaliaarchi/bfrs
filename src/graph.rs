@@ -263,9 +263,9 @@ impl Debug for NodeRef<'_> {
         }
         let g = self.graph();
         match *self.node() {
-            Node::Copy(offset) => write!(f, "@{offset}'{}", self.index),
+            Node::Copy(offset) => write!(f, "@{offset}"),
             Node::Const(value) => write!(f, "{value}"),
-            Node::Input { id } => write!(f, "in{id}'{}", self.index),
+            Node::Input { id } => write!(f, "in{id}"),
             Node::Add(lhs, rhs) => {
                 write!(f, "{:?} + ", &g.get(lhs))?;
                 group(f, g.get(rhs), matches!(g[rhs], Node::Add(..)))

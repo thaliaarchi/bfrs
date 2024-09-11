@@ -1,8 +1,9 @@
-use std::fmt::{self, Display, Formatter, Write};
+use std::fmt::{self, Write};
 
 use crate::{
+    graph::Graph,
     ir::{BasicBlock, Condition, Effect, Ir},
-    Value,
+    node::Node,
 };
 
 struct PrettyPrinter<'a> {
@@ -20,44 +21,44 @@ impl<'a> PrettyPrinter<'a> {
         }
     }
 
-    fn pretty_blocks(&mut self, blocks: &[Ir], indent: usize) -> fmt::Result {
+    fn pretty_blocks(&mut self, blocks: &[Ir], g: &Graph, indent: usize) -> fmt::Result {
         if let [Ir::BasicBlock(bb)] = blocks {
-            self.pretty_bb(bb, indent)
+            self.pretty_bb(bb, g, indent)
         } else if let [block] = blocks {
-            self.pretty_ir(block, indent)
+            self.pretty_ir(block, g, indent)
         } else {
             for block in blocks {
-                self.pretty_ir(block, indent)?;
+                self.pretty_ir(block, g, indent)?;
             }
             Ok(())
         }
     }
 
-    fn pretty_ir(&mut self, ir: &Ir, indent: usize) -> fmt::Result {
+    fn pretty_ir(&mut self, ir: &Ir, g: &Graph, indent: usize) -> fmt::Result {
         match ir {
             Ir::BasicBlock(bb) => {
                 self.indent(indent)?;
                 write!(self.w, "{{\n")?;
-                self.pretty_bb(bb, indent + 1)?;
+                self.pretty_bb(bb, g, indent + 1)?;
                 self.indent(indent)?;
                 write!(self.w, "}}\n")
             }
             Ir::Loop { condition, body } => {
                 self.indent(indent)?;
                 match condition {
-                    Condition::WhileNonZero => write!(self.w, "while %0 != 0")?,
-                    Condition::IfNonZero => write!(self.w, "if %0 != 0")?,
-                    Condition::Count(count) => write!(self.w, "repeat {count:?} times")?,
+                    Condition::WhileNonZero => write!(self.w, "while @0 != 0")?,
+                    Condition::IfNonZero => write!(self.w, "if @0 != 0")?,
+                    Condition::Count(count) => write!(self.w, "repeat {:?} times", count.get(g))?,
                 }
                 write!(self.w, " {{\n")?;
-                self.pretty_blocks(body, indent + 1)?;
+                self.pretty_blocks(body, g, indent + 1)?;
                 self.indent(indent)?;
                 write!(self.w, "}}\n")
             }
         }
     }
 
-    fn pretty_bb(&mut self, bb: &BasicBlock, indent: usize) -> fmt::Result {
+    fn pretty_bb(&mut self, bb: &BasicBlock, g: &Graph, indent: usize) -> fmt::Result {
         // Write effects and track discrepancies between them and the statistic
         // fields.
         let mut guarded_left = 0;
@@ -65,30 +66,31 @@ impl<'a> PrettyPrinter<'a> {
         let mut inputs = 0;
         for effect in &bb.effects {
             self.indent(indent)?;
-            write!(self.w, "{effect:?}")?;
-            match effect {
-                Effect::Output(_) => {}
-                &Effect::Input { id } => {
-                    if id != inputs {
-                        write!(self.w, " # BUG: unordered")?;
-                    }
-                    inputs = id + 1;
+            match *effect {
+                Effect::Output(value) => write!(self.w, "output {:?}", value.get(g))?,
+                Effect::Input(value) => {
+                    write!(self.w, "{:?} = input", value.get(g))?;
+                    if let Node::Input { id } = g[value] {
+                        if id != inputs {
+                            write!(self.w, " # BUG: unordered")?;
+                        }
+                        inputs = id + 1;
+                    } else {
+                        write!(self.w, " # BUG: invalid type")?;
+                    };
                 }
-                &Effect::GuardShift(offset) if offset < 0 => {
-                    if offset < guarded_left {
+                Effect::GuardShift(offset) => {
+                    write!(self.w, "guard_shift {offset}")?;
+                    if offset < 0 && offset < guarded_left {
                         guarded_left = offset;
-                    } else {
-                        write!(self.w, " # BUG: unordered")?;
-                    }
-                }
-                &Effect::GuardShift(offset) if offset > 0 => {
-                    if offset > guarded_right {
+                    } else if offset > 0 && offset > guarded_right {
                         guarded_right = offset;
+                    } else if offset == 0 {
+                        write!(self.w, " # BUG: zero")?;
                     } else {
                         write!(self.w, " # BUG: unordered")?;
                     }
                 }
-                &Effect::GuardShift(_) => write!(self.w, " # BUG: zero")?,
             }
             write!(self.w, "\n")?;
         }
@@ -110,13 +112,12 @@ impl<'a> PrettyPrinter<'a> {
             write!(self.w, "\n")?;
         }
 
-        for (k, v) in (bb.min_offset()..)
-            .map(Value::Copy)
+        for (offset, node) in (bb.min_offset()..)
             .zip(bb.memory.iter())
-            .filter(|(k, v)| k != *v)
+            .filter(|&(offset, &node)| g[node] != Node::Copy(offset))
         {
             self.indent(indent)?;
-            write!(self.w, "{k:?} = {v:?}\n")?;
+            write!(self.w, "@{offset} = {:?}\n", node.get(g))?;
         }
 
         if bb.offset != 0 {
@@ -137,44 +138,50 @@ impl<'a> PrettyPrinter<'a> {
 }
 
 impl Ir {
-    pub fn pretty(&self, w: &mut dyn Write) -> fmt::Result {
-        PrettyPrinter::new(w).pretty_ir(self, 0)
-    }
-
-    pub fn compare_pretty(&self, expect: &str) -> bool {
-        compare_pretty(&self.to_string(), expect)
-    }
-
-    pub fn pretty_root(blocks: &[Ir], w: &mut dyn Write) -> fmt::Result {
-        PrettyPrinter::new(w).pretty_blocks(blocks, 0)
-    }
-
-    pub fn compare_pretty_root(blocks: &[Ir], expect: &str) -> bool {
+    pub fn pretty(&self, g: &Graph) -> String {
         let mut s = String::new();
-        Ir::pretty_root(blocks, &mut s).unwrap();
+        self.write_pretty(&mut s, g).unwrap();
+        s
+    }
+
+    pub fn write_pretty(&self, w: &mut dyn Write, g: &Graph) -> fmt::Result {
+        PrettyPrinter::new(w).pretty_ir(self, g, 0)
+    }
+
+    pub fn compare_pretty(&self, expect: &str, g: &Graph) -> bool {
+        compare_pretty(&self.pretty(g), expect)
+    }
+
+    pub fn pretty_root(blocks: &[Ir], g: &Graph) -> String {
+        let mut s = String::new();
+        Ir::write_pretty_root(blocks, &mut s, g).unwrap();
+        s
+    }
+
+    pub fn write_pretty_root(blocks: &[Ir], w: &mut dyn Write, g: &Graph) -> fmt::Result {
+        PrettyPrinter::new(w).pretty_blocks(blocks, g, 0)
+    }
+
+    pub fn compare_pretty_root(blocks: &[Ir], expect: &str, g: &Graph) -> bool {
+        let mut s = String::new();
+        Ir::write_pretty_root(blocks, &mut s, g).unwrap();
         compare_pretty(&s, expect)
     }
 }
 
-impl Display for Ir {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        self.pretty(f)
-    }
-}
-
 impl BasicBlock {
-    pub fn pretty(&self, w: &mut dyn Write) -> fmt::Result {
-        PrettyPrinter::new(w).pretty_bb(self, 0)
+    pub fn pretty(&self, g: &Graph) -> String {
+        let mut s = String::new();
+        self.write_pretty(&mut s, g).unwrap();
+        s
     }
 
-    pub fn compare_pretty(&self, expect: &str) -> bool {
-        compare_pretty(&self.to_string(), expect)
+    pub fn write_pretty(&self, w: &mut dyn Write, g: &Graph) -> fmt::Result {
+        PrettyPrinter::new(w).pretty_bb(self, g, 0)
     }
-}
 
-impl Display for BasicBlock {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        self.pretty(f)
+    pub fn compare_pretty(&self, expect: &str, g: &Graph) -> bool {
+        compare_pretty(&self.pretty(g), expect)
     }
 }
 

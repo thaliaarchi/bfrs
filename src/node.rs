@@ -1,6 +1,9 @@
 use std::mem;
 
-use crate::graph::{Graph, NodeId};
+use crate::{
+    graph::{Graph, NodeId, NodeRef},
+    ir::BasicBlock,
+};
 
 /// A node in a graph.
 #[derive(Clone, PartialEq, Eq, Hash)]
@@ -86,6 +89,35 @@ impl Node {
     #[inline]
     pub fn find(&self, g: &Graph) -> Option<NodeId> {
         g.find(self)
+    }
+}
+
+impl NodeRef<'_> {
+    /// Returns whether this node references a cell besides at the given offset.
+    pub fn references_other(&self, offset: isize) -> bool {
+        match *self.node() {
+            Node::Copy(offset2) => offset2 != offset,
+            Node::Const(_) | Node::Input { .. } => false,
+            Node::Add(lhs, rhs) | Node::Mul(lhs, rhs) => {
+                lhs.get(self.graph()).references_other(offset)
+                    || rhs.get(self.graph()).references_other(offset)
+            }
+        }
+    }
+}
+
+impl NodeId {
+    pub fn rebase(&self, bb: &mut BasicBlock, g: &mut Graph) -> NodeId {
+        match g[*self] {
+            Node::Copy(offset) => bb.cell(bb.offset() + offset, g),
+            Node::Const(c) => Node::Const(c).insert(g),
+            Node::Input { id } => Node::Input {
+                id: id + bb.inputs(),
+            }
+            .insert(g),
+            Node::Add(lhs, rhs) => Node::Add(lhs.rebase(bb, g), rhs.rebase(bb, g)).idealize(g),
+            Node::Mul(lhs, rhs) => Node::Mul(lhs.rebase(bb, g), rhs.rebase(bb, g)).idealize(g),
+        }
     }
 }
 
