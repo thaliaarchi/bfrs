@@ -73,7 +73,7 @@ impl Node {
 
     /// Gets the ID of this node in a graph.
     #[inline]
-    pub fn get(&self, g: &Graph) -> Option<NodeId> {
-        g.get(self)
+    pub fn find(&self, g: &Graph) -> Option<NodeId> {
+        g.find(self)
     }
 }

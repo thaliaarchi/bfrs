@@ -2,8 +2,9 @@
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::{
     fmt::{self, Debug, Formatter},
-    hash::BuildHasher,
-    ops::{Index, IndexMut},
+    hash::{BuildHasher, Hash, Hasher},
+    ops::{Deref, Index, IndexMut},
+    ptr,
 };
 
 use hashbrown::{hash_map::DefaultHashBuilder, HashTable};
@@ -31,6 +32,13 @@ pub struct NodeId {
     index: u32,
     #[cfg(debug_assertions)]
     graph_id: u32,
+}
+
+/// A reference to a node in a graph.
+#[derive(Clone, Copy)]
+pub struct NodeRef<'g> {
+    graph: &'g Graph,
+    index: u32,
 }
 
 #[cfg(debug_assertions)]
@@ -90,7 +98,7 @@ impl Graph {
     }
 
     /// Gets the ID of a node.
-    pub fn get(&self, node: &Node) -> Option<NodeId> {
+    pub fn find(&self, node: &Node) -> Option<NodeId> {
         debug_assert!(self.assert_node(&node));
         let hash = self.hash_builder.hash_one(&node);
         let eq = |id: &NodeId| {
@@ -98,6 +106,15 @@ impl Graph {
             node == key
         };
         Some(*self.table.find(hash, eq)?)
+    }
+
+    /// Gets a reference to the identified node.
+    pub fn get(&self, id: NodeId) -> NodeRef<'_> {
+        debug_assert!(self.assert_id(id));
+        NodeRef {
+            graph: self,
+            index: id.index,
+        }
     }
 
     fn assert_id(&self, id: NodeId) -> bool {
@@ -147,6 +164,58 @@ impl NodeId {
     pub fn as_usize(&self) -> usize {
         self.index as usize
     }
+
+    /// Gets a reference to this node.
+    pub fn get<'g>(&self, g: &'g Graph) -> NodeRef<'g> {
+        g.get(*self)
+    }
+}
+
+impl<'g> NodeRef<'g> {
+    /// Returns the ID of this node.
+    #[inline]
+    pub fn id(&self) -> NodeId {
+        NodeId {
+            index: self.index,
+            #[cfg(debug_assertions)]
+            graph_id: self.graph.graph_id,
+        }
+    }
+
+    /// Returns this node.
+    #[inline]
+    pub fn node(&self) -> &'g Node {
+        &self.graph[self.id()]
+    }
+
+    /// Returns the graph that contains this node.
+    #[inline]
+    pub fn graph(&self) -> &'g Graph {
+        self.graph
+    }
+}
+
+impl Deref for NodeRef<'_> {
+    type Target = Node;
+
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        self.node()
+    }
+}
+
+impl PartialEq for NodeRef<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        ptr::eq(self.graph, other.graph) && self.index == other.index
+    }
+}
+
+impl Eq for NodeRef<'_> {}
+
+impl Hash for NodeRef<'_> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.id().hash(state)
+    }
 }
 
 impl Debug for Graph {
@@ -180,6 +249,37 @@ impl Debug for Node {
 impl Debug for NodeId {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "%{}", self.index)
+    }
+}
+
+impl Debug for NodeRef<'_> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        fn group(f: &mut Formatter<'_>, node: NodeRef<'_>, grouped: bool) -> fmt::Result {
+            if grouped {
+                write!(f, "({node:?})")
+            } else {
+                write!(f, "{node:?}")
+            }
+        }
+        let g = self.graph();
+        match *self.node() {
+            Node::Copy(offset) => write!(f, "@{offset}'{}", self.index),
+            Node::Const(value) => write!(f, "{value}"),
+            Node::Input { id } => write!(f, "in{id}'{}", self.index),
+            Node::Add(lhs, rhs) => {
+                write!(f, "{:?} + ", &g.get(lhs))?;
+                group(f, g.get(rhs), matches!(g[rhs], Node::Add(..)))
+            }
+            Node::Mul(lhs, rhs) => {
+                group(f, g.get(lhs), matches!(g[lhs], Node::Add(..)))?;
+                write!(f, " * ")?;
+                group(
+                    f,
+                    g.get(rhs),
+                    matches!(g[rhs], Node::Add(..) | Node::Mul(..)),
+                )
+            }
+        }
     }
 }
 
