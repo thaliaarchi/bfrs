@@ -37,21 +37,21 @@ pub enum Condition {
 #[derive(Clone, PartialEq, Eq)]
 pub struct BasicBlock {
     /// A sub-slice of the full memory.
-    memory: VecDeque<Value>,
+    pub(crate) memory: VecDeque<Value>,
     /// A sequence of effects in a basic block.
-    effects: Vec<Effect>,
+    pub(crate) effects: Vec<Effect>,
     /// The index in `memory` of the initial cell at the start of this basic
     /// block.
-    origin_index: usize,
+    pub(crate) origin_index: usize,
     /// The offset of the current cell relative to the initial cell of this
     /// basic block.
-    offset: isize,
+    pub(crate) offset: isize,
     /// The minimum shift left that has been guarded.
-    guarded_left: isize,
+    pub(crate) guarded_left: isize,
     /// The maximum shift right that has been guarded.
-    guarded_right: isize,
+    pub(crate) guarded_right: isize,
     /// The number of inputs read in this basic block.
-    inputs: usize,
+    pub(crate) inputs: usize,
 }
 
 /// An observable effect.
@@ -412,7 +412,7 @@ mod tests {
     use std::collections::VecDeque;
 
     use crate::{
-        ir::{BasicBlock, Condition, Effect, Ir},
+        ir::{BasicBlock, Ir},
         Ast, Value,
     };
 
@@ -430,28 +430,17 @@ mod tests {
         bb.apply(&Ast::Input);
         bb.apply(&Ast::Right);
         bb.apply(&Ast::Right);
-        let expected = BasicBlock {
-            memory: VecDeque::from([
-                Value::Add(Box::new(Value::Copy(-1)), Box::new(Value::Const(255))),
-                Value::Input { id: 0 },
-            ]),
-            effects: vec![
-                Effect::GuardShift(1),
-                Effect::GuardShift(-1),
-                Effect::Output(Value::Add(
-                    Box::new(Value::Copy(0)),
-                    Box::new(Value::Const(2)),
-                )),
-                Effect::Input { id: 0 },
-                Effect::GuardShift(2),
-            ],
-            origin_index: 1,
-            offset: 2,
-            guarded_left: -1,
-            guarded_right: 2,
-            inputs: 1,
-        };
-        assert_eq!(bb, expected);
+        let expect = "
+            guard_shift 1
+            guard_shift -1
+            output %0 + 2
+            input 0
+            guard_shift 2
+            %-1 = %-1 + 255
+            %0 = in0
+            offset 2
+        ";
+        assert!(bb.compare_pretty(expect));
     }
 
     #[test]
@@ -460,94 +449,38 @@ mod tests {
         let src = b"[-[<->-]+[<<<<]]<[>+<-]";
         let ast = Ast::parse(src).unwrap();
         let ir = Ir::lower(&ast);
-        let expected = vec![
-            Ir::Loop {
-                condition: Condition::WhileNonZero,
-                body: vec![
-                    Ir::BasicBlock(BasicBlock {
-                        memory: VecDeque::from([Value::Add(
-                            Box::new(Value::Copy(0)),
-                            Box::new(Value::Const(255)),
-                        )]),
-                        effects: vec![],
-                        origin_index: 0,
-                        offset: 0,
-                        guarded_left: 0,
-                        guarded_right: 0,
-                        inputs: 0,
-                    }),
-                    Ir::Loop {
-                        condition: Condition::WhileNonZero,
-                        body: vec![Ir::BasicBlock(BasicBlock {
-                            memory: VecDeque::from([
-                                Value::Add(Box::new(Value::Copy(-1)), Box::new(Value::Const(255))),
-                                Value::Add(Box::new(Value::Copy(0)), Box::new(Value::Const(255))),
-                            ]),
-                            effects: vec![Effect::GuardShift(-1)],
-                            origin_index: 1,
-                            offset: 0,
-                            guarded_left: -1,
-                            guarded_right: 0,
-                            inputs: 0,
-                        })],
-                    },
-                    Ir::BasicBlock(BasicBlock {
-                        memory: VecDeque::from([Value::Add(
-                            Box::new(Value::Copy(0)),
-                            Box::new(Value::Const(1)),
-                        )]),
-                        effects: vec![],
-                        origin_index: 0,
-                        offset: 0,
-                        guarded_left: 0,
-                        guarded_right: 0,
-                        inputs: 0,
-                    }),
-                    Ir::Loop {
-                        condition: Condition::WhileNonZero,
-                        body: vec![Ir::BasicBlock(BasicBlock {
-                            memory: VecDeque::from([]),
-                            effects: vec![
-                                Effect::GuardShift(-1),
-                                Effect::GuardShift(-2),
-                                Effect::GuardShift(-3),
-                                Effect::GuardShift(-4),
-                            ],
-                            origin_index: 0,
-                            offset: -4,
-                            guarded_left: -4,
-                            guarded_right: 0,
-                            inputs: 0,
-                        })],
-                    },
-                ],
-            },
-            Ir::BasicBlock(BasicBlock {
-                memory: VecDeque::from([]),
-                effects: vec![Effect::GuardShift(-1)],
-                origin_index: 0,
-                offset: -1,
-                guarded_left: -1,
-                guarded_right: 0,
-                inputs: 0,
-            }),
-            Ir::Loop {
-                condition: Condition::WhileNonZero,
-                body: vec![Ir::BasicBlock(BasicBlock {
-                    memory: VecDeque::from([
-                        Value::Add(Box::new(Value::Copy(0)), Box::new(Value::Const(255))),
-                        Value::Add(Box::new(Value::Copy(1)), Box::new(Value::Const(1))),
-                    ]),
-                    effects: vec![Effect::GuardShift(1)],
-                    origin_index: 0,
-                    offset: 0,
-                    guarded_left: 0,
-                    guarded_right: 1,
-                    inputs: 0,
-                })],
-            },
-        ];
-        assert_eq!(ir, expected);
+        let expect = "
+            while %0 != 0 {
+                {
+                    %0 = %0 + 255
+                }
+                while %0 != 0 {
+                    guard_shift -1
+                    %-1 = %-1 + 255
+                    %0 = %0 + 255
+                }
+                {
+                    %0 = %0 + 1
+                }
+                while %0 != 0 {
+                    guard_shift -1
+                    guard_shift -2
+                    guard_shift -3
+                    guard_shift -4
+                    offset -4
+                }
+            }
+            {
+                guard_shift -1
+                offset -1
+            }
+            while %0 != 0 {
+                guard_shift 1
+                %0 = %0 + 255
+                %1 = %1 + 1
+            }
+        ";
+        assert!(Ir::compare_pretty_root(&ir, expect));
     }
 
     #[test]
@@ -570,76 +503,41 @@ mod tests {
         let src = b"[-]";
         let mut ir = Ir::lower(&Ast::parse(src).unwrap());
         Ir::optimize_root(&mut ir);
-        let expected = vec![Ir::BasicBlock(BasicBlock {
-            memory: VecDeque::from([Value::Const(0)]),
-            effects: vec![],
-            origin_index: 0,
-            offset: 0,
-            guarded_left: 0,
-            guarded_right: 0,
-            inputs: 0,
-        })];
-        assert_eq!(ir, expected);
+        let expect = "
+            %0 = 0
+        ";
+        assert!(Ir::compare_pretty_root(&ir, expect));
 
         let src = b"[->+<]";
         let mut ir = Ir::lower(&Ast::parse(src).unwrap());
         Ir::optimize_root(&mut ir);
-        let expected = vec![Ir::BasicBlock(BasicBlock {
-            memory: VecDeque::from([
-                Value::Const(0),
-                Value::Add(Box::new(Value::Copy(1)), Box::new(Value::Copy(0))),
-            ]),
-            effects: vec![Effect::GuardShift(1)],
-            origin_index: 0,
-            offset: 0,
-            guarded_left: 0,
-            guarded_right: 1,
-            inputs: 0,
-        })];
-        assert_eq!(ir, expected);
+        let expect = "
+            guard_shift 1
+            %0 = 0
+            %1 = %1 + %0
+        ";
+        assert!(Ir::compare_pretty_root(&ir, expect));
 
         let src = b"[->+++<]";
         let mut ir = Ir::lower(&Ast::parse(src).unwrap());
         Ir::optimize_root(&mut ir);
-        let expected = vec![Ir::BasicBlock(BasicBlock {
-            memory: VecDeque::from([
-                Value::Const(0),
-                Value::Add(
-                    Box::new(Value::Copy(1)),
-                    Box::new(Value::Mul(
-                        Box::new(Value::Copy(0)),
-                        Box::new(Value::Const(3)),
-                    )),
-                ),
-            ]),
-            effects: vec![Effect::GuardShift(1)],
-            origin_index: 0,
-            offset: 0,
-            guarded_left: 0,
-            guarded_right: 1,
-            inputs: 0,
-        })];
-        assert_eq!(ir, expected);
+        let expect = "
+            guard_shift 1
+            %0 = 0
+            %1 = %1 + %0 * 3
+        ";
+        assert!(Ir::compare_pretty_root(&ir, expect));
 
         let src = b"[.-]";
         let mut ir = Ir::lower(&Ast::parse(src).unwrap());
         Ir::optimize_root(&mut ir);
-        let expected = vec![Ir::Loop {
-            condition: Condition::Count(Value::Copy(0)),
-            body: vec![Ir::BasicBlock(BasicBlock {
-                memory: VecDeque::from([Value::Add(
-                    Box::new(Value::Copy(0)),
-                    Box::new(Value::Const(255)),
-                )]),
-                effects: vec![Effect::Output(Value::Copy(0))],
-                origin_index: 0,
-                offset: 0,
-                guarded_left: 0,
-                guarded_right: 0,
-                inputs: 0,
-            })],
-        }];
-        assert_eq!(ir, expected);
+        let expect = "
+            repeat %0 times {
+                output %0
+                %0 = %0 + 255
+            }
+        ";
+        assert!(Ir::compare_pretty_root(&ir, expect));
     }
 
     #[test]
@@ -647,110 +545,43 @@ mod tests {
         let src = b"[->-->+++<<]";
         let mut ir = Ir::lower(&Ast::parse(src).unwrap());
         Ir::optimize_root(&mut ir);
-        let expected = vec![Ir::BasicBlock(BasicBlock {
-            memory: VecDeque::from([
-                Value::Const(0),
-                Value::Add(
-                    Box::new(Value::Copy(1)),
-                    Box::new(Value::mul(
-                        Box::new(Value::Copy(0)),
-                        Box::new(Value::Const(254)),
-                    )),
-                ),
-                Value::Add(
-                    Box::new(Value::Copy(2)),
-                    Box::new(Value::mul(
-                        Box::new(Value::Copy(0)),
-                        Box::new(Value::Const(3)),
-                    )),
-                ),
-            ]),
-            effects: vec![Effect::GuardShift(1), Effect::GuardShift(2)],
-            origin_index: 0,
-            offset: 0,
-            guarded_left: 0,
-            guarded_right: 2,
-            inputs: 0,
-        })];
-        assert_eq!(ir, expected);
+        let expect = "
+            guard_shift 1
+            guard_shift 2
+            %0 = 0
+            %1 = %1 + %0 * 254
+            %2 = %2 + %0 * 3
+        ";
+        assert!(Ir::compare_pretty_root(&ir, expect));
 
         let src = b"[--->+>++>->--<<<<]";
         let mut ir = Ir::lower(&Ast::parse(src).unwrap());
         Ir::optimize_root(&mut ir);
-        let expected = vec![Ir::BasicBlock(BasicBlock {
-            memory: VecDeque::from([
-                Value::Const(0),
-                Value::Add(
-                    Box::new(Value::Copy(1)),
-                    Box::new(Value::Mul(
-                        Box::new(Value::Copy(0)),
-                        Box::new(Value::Const(171)),
-                    )),
-                ),
-                Value::Add(
-                    Box::new(Value::Copy(2)),
-                    Box::new(Value::Mul(
-                        Box::new(Value::Copy(0)),
-                        Box::new(Value::Const(171u8.wrapping_mul(2))),
-                    )),
-                ),
-                Value::Add(
-                    Box::new(Value::Copy(3)),
-                    Box::new(Value::Mul(
-                        Box::new(Value::Copy(0)),
-                        Box::new(Value::Const(171u8.wrapping_mul(255))),
-                    )),
-                ),
-                Value::Add(
-                    Box::new(Value::Copy(4)),
-                    Box::new(Value::Mul(
-                        Box::new(Value::Copy(0)),
-                        Box::new(Value::Const(171u8.wrapping_mul(254))),
-                    )),
-                ),
-            ]),
-            effects: vec![
-                Effect::GuardShift(1),
-                Effect::GuardShift(2),
-                Effect::GuardShift(3),
-                Effect::GuardShift(4),
-            ],
-            origin_index: 0,
-            offset: 0,
-            guarded_left: 0,
-            guarded_right: 4,
-            inputs: 0,
-        })];
-        assert_eq!(ir, expected);
+        let expect = "
+            guard_shift 1
+            guard_shift 2
+            guard_shift 3
+            guard_shift 4
+            %0 = 0
+            %1 = %1 + %0 * 171
+            %2 = %2 + %0 * 86
+            %3 = %3 + %0 * 85
+            %4 = %4 + %0 * 170
+        ";
+        assert!(Ir::compare_pretty_root(&ir, expect));
 
         let src = b"[+++++++++++++++.>++<]";
         let mut ir = Ir::lower(&Ast::parse(src).unwrap());
         Ir::optimize_root(&mut ir);
-        let expected = vec![Ir::Loop {
-            condition: Condition::Count(Value::Mul(
-                Box::new(Value::Copy(0)),
-                Box::new(Value::Const(17)),
-            )),
-            body: vec![Ir::BasicBlock(BasicBlock {
-                memory: VecDeque::from([
-                    Value::Add(Box::new(Value::Copy(0)), Box::new(Value::Const(15))),
-                    Value::Add(Box::new(Value::Copy(1)), Box::new(Value::Const(2))),
-                ]),
-                effects: vec![
-                    Effect::Output(Value::Add(
-                        Box::new(Value::Copy(0)),
-                        Box::new(Value::Const(15)),
-                    )),
-                    Effect::GuardShift(1),
-                ],
-                origin_index: 0,
-                offset: 0,
-                guarded_left: 0,
-                guarded_right: 1,
-                inputs: 0,
-            })],
-        }];
-        assert_eq!(ir, expected);
+        let expect = "
+            repeat %0 * 17 times {
+                output %0 + 15
+                guard_shift 1
+                %0 = %0 + 15
+                %1 = %1 + 2
+            }
+        ";
+        assert!(Ir::compare_pretty_root(&ir, expect));
     }
 
     #[test]
@@ -760,7 +591,7 @@ mod tests {
         bb.reserve(-2);
         bb.reserve(2);
         bb.reserve(-3);
-        let expected = BasicBlock {
+        let expect = BasicBlock {
             memory: VecDeque::from([
                 Value::Copy(-3),
                 Value::Copy(-2),
@@ -776,6 +607,6 @@ mod tests {
             guarded_right: 0,
             inputs: 0,
         };
-        assert_eq!(bb, expected);
+        assert_eq!(bb, expect);
     }
 }
