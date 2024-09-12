@@ -12,6 +12,8 @@ use crate::{
 // TODO:
 // - Concatenate flattened loops.
 // - Sort `Add` operands by offset.
+// - Move guard_shift out of loops with no net shift. Peel the first iteration
+//   if necessary.
 
 #[derive(Clone, PartialEq, Eq)]
 pub enum Ir {
@@ -429,27 +431,14 @@ fn mod_inverse(value: u8) -> Option<u8> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{
-        graph::Graph,
-        ir::{BasicBlock, Ir},
-        Ast,
-    };
+    use crate::{graph::Graph, ir::Ir, Ast};
 
     #[test]
-    fn apply_ops() {
-        let g = &mut Graph::new();
-        let mut bb = BasicBlock::new();
-        bb.apply(&Ast::Inc, g);
-        bb.apply(&Ast::Inc, g);
-        bb.apply(&Ast::Right, g);
-        bb.apply(&Ast::Left, g);
-        bb.apply(&Ast::Left, g);
-        bb.apply(&Ast::Dec, g);
-        bb.apply(&Ast::Right, g);
-        bb.apply(&Ast::Output, g);
-        bb.apply(&Ast::Input, g);
-        bb.apply(&Ast::Right, g);
-        bb.apply(&Ast::Right, g);
+    fn lower_bb() {
+        let mut g = Graph::new();
+        let src = b"++><<->.,>>";
+        let ast = Ast::parse(src).unwrap();
+        let ir = Ir::lower(&ast, &mut g);
         let expect = "
             guard_shift 1
             guard_shift -1
@@ -460,7 +449,7 @@ mod tests {
             @0 = in0
             offset 2
         ";
-        assert!(bb.compare_pretty(expect, g));
+        assert!(Ir::compare_pretty_root(&ir, expect, &g));
     }
 
     #[test]
@@ -469,7 +458,7 @@ mod tests {
         let mut g = Graph::new();
         let src = b"[-[<->-]+[<<<<]]<[>+<-]";
         let ast = Ast::parse(src).unwrap();
-        let ir = Ir::lower(&ast, &mut g);
+        let mut ir = Ir::lower(&ast, &mut g);
         let expect = "
             while @0 != 0 {
                 {
@@ -502,6 +491,40 @@ mod tests {
             }
         ";
         assert!(Ir::compare_pretty_root(&ir, expect, &g));
+        // TODO: Fix not optimizing `[<->-]`.
+        Ir::optimize_root(&mut ir, &mut g);
+        let expect = "
+            while @0 != 0 {
+                {
+                    @0 = @0 + 255
+                }
+                while @0 != 0 {
+                    guard_shift -1
+                    @-1 = @-1 + 255
+                    @0 = @0 + 255
+                }
+                {
+                    @0 = @0 + 1
+                }
+                while @0 != 0 {
+                    guard_shift -1
+                    guard_shift -2
+                    guard_shift -3
+                    guard_shift -4
+                    offset -4
+                }
+            }
+            {
+                guard_shift -1
+                offset -1
+            }
+            {
+                guard_shift 1
+                @0 = 0
+                @1 = @1 + @0
+            }
+        ";
+        assert!(Ir::compare_pretty_root(&ir, expect, &g));
     }
 
     #[test]
@@ -530,7 +553,7 @@ mod tests {
     }
 
     #[test]
-    fn optimize() {
+    fn closed_form_loops() {
         let src = b"[-]";
         let mut g = Graph::new();
         let mut ir = Ir::lower(&Ast::parse(src).unwrap(), &mut g);
@@ -551,6 +574,17 @@ mod tests {
         ";
         assert!(Ir::compare_pretty_root(&ir, expect, &g));
 
+        let src = b"[<->-]";
+        let mut g = Graph::new();
+        let mut ir = Ir::lower(&Ast::parse(src).unwrap(), &mut g);
+        Ir::optimize_root(&mut ir, &mut g);
+        let expect = "
+            guard_shift -1
+            @-1 = @-1 + @0 * 255
+            @0 = 0
+        ";
+        assert!(Ir::compare_pretty_root(&ir, expect, &g));
+
         let src = b"[->+++<]";
         let mut g = Graph::new();
         let mut ir = Ir::lower(&Ast::parse(src).unwrap(), &mut g);
@@ -562,21 +596,6 @@ mod tests {
         ";
         assert!(Ir::compare_pretty_root(&ir, expect, &g));
 
-        let src = b"[.-]";
-        let mut g = Graph::new();
-        let mut ir = Ir::lower(&Ast::parse(src).unwrap(), &mut g);
-        Ir::optimize_root(&mut ir, &mut g);
-        let expect = "
-            repeat @0 times {
-                output @0
-                @0 = @0 + 255
-            }
-        ";
-        assert!(Ir::compare_pretty_root(&ir, expect, &g));
-    }
-
-    #[test]
-    fn closed_form_loops() {
         let src = b"[->-->+++<<]";
         let mut g = Graph::new();
         let mut ir = Ir::lower(&Ast::parse(src).unwrap(), &mut g);
@@ -604,6 +623,21 @@ mod tests {
             @2 = @2 + @0 * 86
             @3 = @3 + @0 * 85
             @4 = @4 + @0 * 170
+        ";
+        assert!(Ir::compare_pretty_root(&ir, expect, &g));
+    }
+
+    #[test]
+    fn fixed_repetition_loops() {
+        let src = b"[.-]";
+        let mut g = Graph::new();
+        let mut ir = Ir::lower(&Ast::parse(src).unwrap(), &mut g);
+        Ir::optimize_root(&mut ir, &mut g);
+        let expect = "
+            repeat @0 times {
+                output @0
+                @0 = @0 + 255
+            }
         ";
         assert!(Ir::compare_pretty_root(&ir, expect, &g));
 
