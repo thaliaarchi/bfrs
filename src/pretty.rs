@@ -1,7 +1,7 @@
-use std::fmt::{self, Write};
+use std::fmt::{self, Debug, Formatter, Write};
 
 use crate::{
-    graph::Graph,
+    graph::{ArrayId, ByteId, Graph, NodeId, NodeRef},
     ir::{BasicBlock, Condition, Effect, Ir},
     node::Byte,
 };
@@ -134,6 +134,120 @@ impl<'a> PrettyPrinter<'a> {
             self.indent_buf.push_str(Self::INDENT);
         }
         self.w.write_str(&self.indent_buf[..len])
+    }
+}
+
+impl Debug for Byte {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match *self {
+            Byte::Copy(offset) => write!(f, "copy {offset}"),
+            Byte::Const(c) => write!(f, "const {}", c as i8),
+            Byte::Input { id } => write!(f, "input {id}"),
+            Byte::Add(lhs, rhs) => write!(f, "add {lhs:?} {rhs:?}"),
+            Byte::Mul(lhs, rhs) => write!(f, "mul {lhs:?} {rhs:?}"),
+        }
+    }
+}
+
+impl Debug for NodeId {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "%{}", self.as_usize())
+    }
+}
+
+impl Debug for NodeRef<'_, NodeId> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        let g = self.graph();
+        if let Some(id) = self.id().as_byte_id(g) {
+            Debug::fmt(&id.get(g), f)
+        } else if let Some(id) = self.id().as_array_id(g) {
+            Debug::fmt(&id.get(g), f)
+        } else {
+            unreachable!();
+        }
+    }
+}
+
+impl Debug for NodeRef<'_, ByteId> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        fn group(f: &mut Formatter<'_>, node: NodeRef<'_, ByteId>, grouped: bool) -> fmt::Result {
+            if grouped {
+                write!(f, "({node:?})")
+            } else {
+                write!(f, "{node:?}")
+            }
+        }
+        let g = self.graph();
+        match *self.node() {
+            Byte::Copy(offset) => write!(f, "@{offset}"),
+            Byte::Const(value) => write!(f, "{}", value as i8),
+            Byte::Input { id } => write!(f, "in{id}"),
+            Byte::Add(lhs, rhs) => {
+                write!(f, "{:?}", &g.get(lhs))?;
+                if let &Byte::Const(rhs) = g.get(rhs).node() {
+                    if (rhs as i8) < 0 {
+                        return write!(f, " - {}", (rhs as i8).unsigned_abs());
+                    }
+                }
+                write!(f, " + ")?;
+                group(f, g.get(rhs), matches!(g[rhs], Byte::Add(..)))
+            }
+            Byte::Mul(lhs, rhs) => {
+                group(f, g.get(lhs), matches!(g[lhs], Byte::Add(..)))?;
+                write!(f, " * ")?;
+                group(
+                    f,
+                    g.get(rhs),
+                    matches!(g[rhs], Byte::Add(..) | Byte::Mul(..)),
+                )
+            }
+        }
+    }
+}
+
+impl Debug for NodeRef<'_, ArrayId> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        fn write_char(w: &mut dyn Write, ch: u8) -> fmt::Result {
+            match ch {
+                b'\0' => write!(w, "\\0"),
+                b'\t' => write!(w, "\\t"),
+                b'\n' => write!(w, "\\n"),
+                b'\r' => write!(w, "\\r"),
+                b'\\' => write!(w, "\\\\"),
+                _ if ch.is_ascii() && !ch.is_ascii_control() => write!(w, "{}", ch as char),
+                _ => write!(w, "\\x{ch:02x}"),
+            }
+        }
+        let g = self.graph();
+        if self
+            .elements
+            .iter()
+            .all(|&e| matches!(g[e], Byte::Const(_)))
+        {
+            write!(f, "\"")?;
+            for &e in &self.elements {
+                let Byte::Const(ch) = g[e] else {
+                    unreachable!();
+                };
+                write_char(f, ch)?;
+            }
+            write!(f, "\"")
+        } else {
+            write!(f, "[")?;
+            for (i, &e) in self.elements.iter().enumerate() {
+                if i != 0 {
+                    write!(f, ", ")?;
+                }
+                if let Byte::Const(ch) = g[e] {
+                    write!(f, "'")?;
+                    write_char(f, ch)?;
+                    write!(f, "'")?;
+                } else {
+                    write!(f, "{:?}", g.get(e))?;
+                }
+            }
+            write!(f, "]")
+        }
     }
 }
 

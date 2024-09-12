@@ -1,7 +1,7 @@
 use std::mem;
 
 use crate::{
-    graph::{ArrayId, ByteId, Graph, NodeRef},
+    graph::{ArrayId, ByteId, Graph, NodeId, NodeRef},
     ir::BasicBlock,
 };
 
@@ -133,6 +133,28 @@ impl Array {
     #[inline]
     pub fn insert(self, g: &mut Graph) -> ArrayId {
         g.insert_array(self)
+    }
+}
+
+impl ArrayId {
+    pub fn rebase(&self, bb: &mut BasicBlock, g: &mut Graph) -> ArrayId {
+        let mut array = g[*self].clone();
+        for e in &mut array.elements {
+            *e = e.rebase(bb, g);
+        }
+        array.insert(g)
+    }
+}
+
+impl NodeId {
+    pub fn rebase(&self, bb: &mut BasicBlock, g: &mut Graph) -> NodeId {
+        if let Some(id) = self.as_byte_id(g) {
+            id.rebase(bb, g).as_node_id()
+        } else if let Some(id) = self.as_array_id(g) {
+            id.rebase(bb, g).as_node_id()
+        } else {
+            unreachable!();
+        }
     }
 }
 

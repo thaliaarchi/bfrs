@@ -283,61 +283,6 @@ impl Debug for Graph {
     }
 }
 
-impl Debug for Byte {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        match *self {
-            Byte::Copy(offset) => write!(f, "copy {offset}"),
-            Byte::Const(c) => write!(f, "const {}", c as i8),
-            Byte::Input { id } => write!(f, "input {id}"),
-            Byte::Add(lhs, rhs) => write!(f, "add {lhs:?} {rhs:?}"),
-            Byte::Mul(lhs, rhs) => write!(f, "mul {lhs:?} {rhs:?}"),
-        }
-    }
-}
-
-impl Debug for NodeId {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "%{}", self.index)
-    }
-}
-
-impl Debug for NodeRef<'_, ByteId> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        fn group(f: &mut Formatter<'_>, node: NodeRef<'_, ByteId>, grouped: bool) -> fmt::Result {
-            if grouped {
-                write!(f, "({node:?})")
-            } else {
-                write!(f, "{node:?}")
-            }
-        }
-        let g = self.graph();
-        match *self.node() {
-            Byte::Copy(offset) => write!(f, "@{offset}"),
-            Byte::Const(value) => write!(f, "{}", value as i8),
-            Byte::Input { id } => write!(f, "in{id}"),
-            Byte::Add(lhs, rhs) => {
-                write!(f, "{:?}", &g.get(lhs))?;
-                if let &Byte::Const(rhs) = g.get(rhs).node() {
-                    if (rhs as i8) < 0 {
-                        return write!(f, " - {}", (rhs as i8).unsigned_abs());
-                    }
-                }
-                write!(f, " + ")?;
-                group(f, g.get(rhs), matches!(g[rhs], Byte::Add(..)))
-            }
-            Byte::Mul(lhs, rhs) => {
-                group(f, g.get(lhs), matches!(g[lhs], Byte::Add(..)))?;
-                write!(f, " * ")?;
-                group(
-                    f,
-                    g.get(rhs),
-                    matches!(g[rhs], Byte::Add(..) | Byte::Mul(..)),
-                )
-            }
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use crate::{graph::Graph, node::Byte};

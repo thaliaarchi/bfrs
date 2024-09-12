@@ -18,6 +18,26 @@ pub struct ByteId(pub(super) NodeId);
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ArrayId(pub(super) NodeId);
 
+impl NodeId {
+    /// Downcasts to a byte ID if the node is a byte.
+    pub fn as_byte_id(&self, g: &Graph) -> Option<ByteId> {
+        if let Node::Byte(_) = g[*self] {
+            Some(ByteId(*self))
+        } else {
+            None
+        }
+    }
+
+    /// Downcasts to an array ID if the node is an array.
+    pub fn as_array_id(&self, g: &Graph) -> Option<ArrayId> {
+        if let Node::Array(_) = g[*self] {
+            Some(ArrayId(*self))
+        } else {
+            None
+        }
+    }
+}
+
 impl ByteId {
     /// Gets the untyped ID for this node.
     #[inline]
