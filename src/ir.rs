@@ -4,8 +4,8 @@ use std::{
 };
 
 use crate::{
-    graph::{ByteId, Graph},
-    node::Byte,
+    graph::{ByteId, Graph, NodeId},
+    node::{Array, Byte, Node},
     Ast,
 };
 
@@ -68,7 +68,7 @@ pub struct BasicBlock {
 #[derive(Clone, PartialEq, Eq)]
 pub enum Effect {
     /// Printing a value.
-    Output(ByteId),
+    Output(NodeId),
     /// Reading from the user. The node is always `Node::Input`.
     Input(ByteId),
     /// Guarding that a shift can be performed to an offset.
@@ -134,7 +134,9 @@ impl Ir {
 
     /// Optimizes decrement loops and if-style loops.
     pub fn optimize(&mut self, g: &mut Graph) {
-        if let Ir::Loop { condition, body } = self {
+        if let Ir::BasicBlock(bb) = self {
+            bb.combine_outputs(g);
+        } else if let Ir::Loop { condition, body } = self {
             if let [Ir::BasicBlock(bb)] = body.as_mut_slice() {
                 if bb.offset == 0 {
                     if let Some(current) = bb.get(0) {
@@ -255,7 +257,7 @@ impl BasicBlock {
             }
             Ast::Output => {
                 let value = self.cell(self.offset, g);
-                self.effects.push(Effect::Output(value));
+                self.effects.push(Effect::Output(value.as_node_id()));
             }
             Ast::Input => {
                 let input = Byte::Input { id: self.inputs }.insert(g);
@@ -298,6 +300,7 @@ impl BasicBlock {
             }
             self.effects.push(effect);
         }
+        self.combine_outputs(g);
         for cell in &mut other.memory {
             *cell = cell.rebase(self, g);
         }
@@ -311,6 +314,40 @@ impl BasicBlock {
         self.guarded_right = self.guarded_right.max(self.offset + other.guarded_right);
         self.offset += other.offset;
         self.inputs += other.inputs;
+    }
+
+    fn combine_outputs(&mut self, g: &mut Graph) {
+        let mut i = 0;
+        while i + 1 < self.effects.len() {
+            if let Effect::Output(v1) = self.effects[i] {
+                let j = self.effects[i + 1..]
+                    .iter()
+                    .position(|effect| !matches!(effect, Effect::Output(_)))
+                    .map(|n| i + 1 + n)
+                    .unwrap_or(self.effects.len());
+                if j - i > 1 {
+                    let mut array = match &g[v1] {
+                        Node::Byte(_) => {
+                            let mut elements = Vec::new();
+                            elements.push(v1.as_byte_id(g).unwrap());
+                            Array { elements }
+                        }
+                        Node::Array(array) => array.clone(),
+                    };
+                    for output in self.effects.drain(i + 1..j) {
+                        let Effect::Output(v) = output else {
+                            unreachable!();
+                        };
+                        match &g[v] {
+                            Node::Byte(_) => array.elements.push(v.as_byte_id(g).unwrap()),
+                            Node::Array(other) => array.elements.extend_from_slice(&other.elements),
+                        }
+                    }
+                    self.effects[i] = Effect::Output(array.insert(g).as_node_id());
+                }
+            }
+            i += 1;
+        }
     }
 
     pub fn offset(&self) -> isize {
