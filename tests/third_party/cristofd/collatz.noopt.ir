@@ -1,0 +1,483 @@
+{
+    guard_shift 1
+    in0 = input
+    @1 = in0
+    shift 1
+}
+while @0 != 0 {
+    while @0 != 0 {
+        {
+            @0 = @0 - 10
+        }
+        while @0 != 0 {
+            {
+                guard_shift 1
+                guard_shift 2
+                guard_shift 3
+                shift 3
+            }
+            while @0 != 0 {
+                guard_shift 1
+                guard_shift 2
+                guard_shift 3
+                guard_shift 4
+                shift 4
+            }
+            {
+                @0 = @0 + 1
+            }
+            while @0 != 0 {
+                while @0 != 0 {
+                    @0 = @0 - 1
+                }
+                {
+                    guard_shift -1
+                    @0 = @0 + 1
+                    shift -1
+                }
+                while @0 != 0 {
+                    {
+                        guard_shift 1
+                        guard_shift 2
+                        guard_shift 3
+                        guard_shift 4
+                        guard_shift 5
+                        guard_shift 6
+                        guard_shift 7
+                        guard_shift 8
+                        @0 = @0 - 1
+                        @4 = @4 + 2
+                        @8 = @8 + 1
+                        shift 8
+                    }
+                    while @0 != 0 {
+                        guard_shift 1
+                        guard_shift 2
+                        guard_shift 3
+                        guard_shift 4
+                        shift 4
+                    }
+                    {
+                        @0 = @0 + 2
+                    }
+                    while @0 != 0 {
+                        guard_shift 1
+                        guard_shift -1
+                        guard_shift -2
+                        guard_shift -3
+                        guard_shift -4
+                        @0 = @0 - 1
+                        @1 = @1 + 1
+                        shift -4
+                    }
+                }
+                {
+                    guard_shift -1
+                    guard_shift -2
+                    guard_shift -3
+                    shift -3
+                }
+            }
+            {
+                @0 = @0 + 6
+            }
+            while @0 != 0 {
+                guard_shift 1
+                @0 = @0 - 1
+                @1 = @1 - 6
+            }
+            {
+                guard_shift 1
+                @1 = @1 - 2
+                shift 1
+            }
+            while @0 != 0 {
+                {
+                    guard_shift 1
+                    guard_shift 2
+                    shift 2
+                }
+                while @0 != 0 {
+                    guard_shift 1
+                    guard_shift 2
+                    guard_shift 3
+                    guard_shift 4
+                    @0 = @0 - 1
+                    shift 4
+                }
+                {
+                    guard_shift 1
+                    @0 = @0 + 1
+                    @1 = @1 + 1
+                    shift 1
+                }
+                while @0 != 0 {
+                    guard_shift -1
+                    guard_shift -2
+                    guard_shift -3
+                    guard_shift -4
+                    shift -4
+                }
+                {
+                    guard_shift 1
+                    @1 = @1 - 1
+                    shift 1
+                }
+            }
+            {
+                in0 = input
+                guard_shift -1
+                @0 = in0
+                shift -1
+            }
+        }
+        {
+            guard_shift 1
+            shift 1
+        }
+    }
+    {
+        guard_shift 1
+        guard_shift 2
+        guard_shift 3
+        guard_shift 4
+        guard_shift 5
+        guard_shift 6
+        @3 = @3 + 2
+        @4 = @4 + 1
+        shift 6
+    }
+    while @0 != 0 {
+        {
+            guard_shift -1
+            guard_shift -2
+            shift -2
+        }
+        while @0 != 0 {
+            {
+                guard_shift 1
+                guard_shift 2
+                guard_shift 3
+                guard_shift 4
+                shift 4
+            }
+            while @0 != 0 {
+                @0 = @0 - 1
+            }
+            {
+                guard_shift -1
+                @0 = @0 + 9
+                shift -1
+            }
+            while @0 != 0 {
+                guard_shift 1
+                @0 = @0 - 1
+                @1 = @1 - 1
+            }
+            {
+                guard_shift 1
+                @0 = @0 + 9
+                shift 1
+            }
+            while @0 != 0 {
+                {
+                    @0 = @0 - 1
+                }
+                while @0 != 0 {
+                    guard_shift -1
+                    @-1 = @-1 - 1
+                    @0 = @0 - 1
+                }
+                {
+                    @0 = @0 + 1
+                }
+                while @0 != 0 {
+                    guard_shift -1
+                    guard_shift -2
+                    guard_shift -3
+                    guard_shift -4
+                    shift -4
+                }
+            }
+            {
+                guard_shift -1
+                shift -1
+            }
+            while @0 != 0 {
+                guard_shift 1
+                @0 = @0 - 1
+                @1 = @1 + 1
+            }
+            {
+                guard_shift 1
+                shift 1
+            }
+        }
+        {
+            guard_shift 1
+            shift 1
+        }
+        while @0 != 0 {
+            {
+                guard_shift 1
+                shift 1
+            }
+            while @0 != 0 {
+                guard_shift 1
+                guard_shift 2
+                guard_shift 3
+                guard_shift 4
+                shift 4
+            }
+            {
+                @0 = @0 + 1
+            }
+            while @0 != 0 {
+                while @0 != 0 {
+                    @0 = @0 - 1
+                }
+                {
+                    guard_shift -1
+                    shift -1
+                }
+                while @0 != 0 {
+                    {
+                        @0 = @0 + 1
+                    }
+                    while @0 != 0 {
+                        guard_shift 1
+                        guard_shift 2
+                        guard_shift 3
+                        guard_shift 4
+                        @0 = @0 - 1
+                        shift 4
+                    }
+                    {
+                        guard_shift 1
+                        @1 = @1 + 1
+                    }
+                }
+                {
+                    guard_shift 1
+                    shift 1
+                }
+                while @0 != 0 {
+                    {
+                        guard_shift -1
+                        @-1 = @-1 + 1
+                    }
+                    while @0 != 0 {
+                        guard_shift -1
+                        guard_shift -2
+                        guard_shift -3
+                        guard_shift -4
+                        shift -4
+                    }
+                }
+                {
+                    guard_shift -1
+                    guard_shift -2
+                    guard_shift -3
+                    guard_shift -4
+                    @0 = @0 + 1
+                    shift -4
+                }
+            }
+            {
+                guard_shift 1
+                guard_shift 2
+                guard_shift 3
+                shift 3
+            }
+            while @0 != 0 {
+                guard_shift 1
+                guard_shift 2
+                guard_shift 3
+                guard_shift 4
+                @0 = @0 - 1
+                shift 4
+            }
+            {
+                guard_shift 1
+                @0 = @0 + 1
+                @1 = @1 + 1
+                shift 1
+            }
+            while @0 != 0 {
+                guard_shift -1
+                guard_shift -2
+                guard_shift -3
+                guard_shift -4
+                shift -4
+            }
+        }
+        {
+            guard_shift 1
+            shift 1
+        }
+        while @0 != 0 {
+            while @0 != 0 {
+                {
+                    guard_shift 1
+                    guard_shift 2
+                    guard_shift 3
+                    @1 = @1 + 1
+                    shift 3
+                }
+                while @0 != 0 {
+                    guard_shift -1
+                    guard_shift -2
+                    guard_shift -3
+                    guard_shift -4
+                    @-4 = @-4 + 1
+                    @0 = @0 - 1
+                }
+                {
+                    guard_shift 1
+                    shift 1
+                }
+            }
+            {
+                guard_shift -1
+                guard_shift -2
+                guard_shift -3
+                guard_shift -4
+                shift -4
+            }
+            while @0 != 0 {
+                @0 = @0 - 1
+            }
+            {
+                guard_shift 1
+                shift 1
+            }
+            while @0 != 0 {
+                guard_shift -1
+                guard_shift -2
+                guard_shift -3
+                guard_shift -4
+                @0 = @0 - 1
+                shift -4
+            }
+        }
+        {
+            guard_shift 1
+            guard_shift 2
+            guard_shift 3
+            guard_shift 4
+            guard_shift 5
+            guard_shift 6
+            guard_shift 7
+            shift 7
+        }
+    }
+    {
+        guard_shift 1
+        guard_shift 2
+        @2 = @2 + 1
+        shift 2
+    }
+    while @0 != 0 {
+        while @0 != 0 {
+            @0 = @0 - 1
+        }
+        {
+            guard_shift 1
+            guard_shift 2
+            guard_shift 3
+            guard_shift 4
+            @0 = @0 + 6
+            shift 4
+        }
+    }
+    {
+        guard_shift -1
+        guard_shift -2
+        guard_shift -3
+        guard_shift -4
+        shift -4
+    }
+    while @0 != 0 {
+        while @0 != 0 {
+            guard_shift -1
+            @-1 = @-1 + 8
+            @0 = @0 - 1
+        }
+        {
+            guard_shift -1
+            output @-1
+            shift -1
+        }
+        while @0 != 0 {
+            @0 = @0 - 1
+        }
+        {
+            guard_shift -1
+            shift -1
+        }
+        while @0 != 0 {
+            @0 = @0 - 1
+        }
+        {
+            guard_shift -1
+            shift -1
+        }
+        while @0 != 0 {
+            @0 = @0 - 1
+        }
+        {
+            guard_shift -1
+            shift -1
+        }
+    }
+    {
+        guard_shift -1
+        in0 = input
+        @-1 = in0
+        shift -1
+    }
+}
+while @0 != 0 {
+    output @0 + 1
+    output @0 + 1
+    in0 = input
+    in1 = input
+    output in1
+    in2 = input
+    output in2
+    in3 = input
+    in4 = input
+    in5 = input
+    in6 = input
+    output in6
+    output in6
+    output in6
+    in7 = input
+    in8 = input
+    in9 = input
+    in10 = input
+    output in10
+    output in10
+    output in10
+    output in10
+    output in10
+    output in10
+    in11 = input
+    output in11
+    output in11
+    in12 = input
+    in13 = input
+    in14 = input
+    in15 = input
+    output in15
+    in16 = input
+    output in16 - 1
+    output in16 - 1
+    in17 = input
+    output in17
+    output in17
+    output in17
+    output in17
+    output in17
+    @0 = in17
+}

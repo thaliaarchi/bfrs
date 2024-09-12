@@ -1,3 +1,5 @@
+use std::fs;
+
 use bfrs::{graph::Graph, ir::Ir, Ast};
 
 fn test_lower(src: &str, expect: &str) {
@@ -15,82 +17,32 @@ fn test_optimize(src: &str, expect: &str) {
     assert!(Ir::compare_pretty_root(&ir, expect, &g));
 }
 
+fn test_lower_file(src_path: &str, expect_path: &str) {
+    let src = fs::read_to_string(src_path).unwrap();
+    let expect = fs::read_to_string(expect_path).unwrap();
+    test_lower(&src, &expect);
+}
+
+fn test_optimize_file(src_path: &str, expect_path: &str) {
+    let src = fs::read_to_string(src_path).unwrap();
+    let expect = fs::read_to_string(expect_path).unwrap();
+    test_optimize(&src, &expect);
+}
+
 #[test]
-fn lower_bb() {
-    test_lower(
-        "++><<->.,>>",
-        "
-            guard_shift 1
-            guard_shift -1
-            output @0 + 2
-            in0 = input
-            guard_shift 2
-            @-1 = @-1 - 1
-            @0 = in0
-            shift 2
-        ",
+fn collatz_lower() {
+    test_lower_file(
+        "tests/third_party/cristofd/collatz.b",
+        "tests/third_party/cristofd/collatz.noopt.ir",
     );
 }
 
 #[test]
-fn lower() {
-    // Excerpt from https://www.brainfuck.org/collatz.b
-    let src = "[-[<->-]+[<<<<]]<[>+<-]";
-    let expect = "
-        while @0 != 0 {
-            {
-                @0 = @0 - 1
-            }
-            while @0 != 0 {
-                guard_shift -1
-                @-1 = @-1 - 1
-                @0 = @0 - 1
-            }
-            {
-                @0 = @0 + 1
-            }
-            while @0 != 0 {
-                guard_shift -1
-                guard_shift -2
-                guard_shift -3
-                guard_shift -4
-                shift -4
-            }
-        }
-        {
-            guard_shift -1
-            shift -1
-        }
-        while @0 != 0 {
-            guard_shift 1
-            @0 = @0 - 1
-            @1 = @1 + 1
-        }
-    ";
-    test_lower(src, expect);
-    let expect = "
-        if @0 != 0 {
-            {
-                guard_shift -1
-                @-1 = @-1 + (@0 - 1) * -1
-                @0 = 1
-            }
-            while @0 != 0 {
-                guard_shift -1
-                guard_shift -2
-                guard_shift -3
-                guard_shift -4
-                shift -4
-            }
-        }
-        {
-            guard_shift -1
-            @-1 = 0
-            @0 = @0 + @-1
-            shift -1
-        }
-    ";
-    test_optimize(src, expect);
+fn collatz_optimize() {
+    test_optimize_file(
+        "tests/third_party/cristofd/collatz.b",
+        "tests/third_party/cristofd/collatz.ir",
+    );
 }
 
 #[test]
