@@ -147,6 +147,9 @@ impl Ir {
                     }
                 }
             }
+            for block in body.iter_mut() {
+                block.optimize(g);
+            }
             if let Some(Ir::BasicBlock(last)) = body.last() {
                 if let Some(offset) = Ir::offset_root(body) {
                     if let Some(v) = last.get(offset) {
@@ -491,17 +494,16 @@ mod tests {
             }
         ";
         assert!(Ir::compare_pretty_root(&ir, expect, &g));
-        // TODO: Fix not optimizing `[<->-]`.
         Ir::optimize_root(&mut ir, &mut g);
         let expect = "
             while @0 != 0 {
                 {
                     @0 = @0 + 255
                 }
-                while @0 != 0 {
+                {
                     guard_shift -1
-                    @-1 = @-1 + 255
-                    @0 = @0 + 255
+                    @-1 = @-1 + @0 * 255
+                    @0 = 0
                 }
                 {
                     @0 = @0 + 1
