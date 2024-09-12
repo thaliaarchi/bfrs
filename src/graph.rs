@@ -238,7 +238,7 @@ impl Debug for Node {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match *self {
             Node::Copy(offset) => write!(f, "copy {offset}"),
-            Node::Const(c) => write!(f, "const {c}"),
+            Node::Const(c) => write!(f, "const {}", c as i8),
             Node::Input { id } => write!(f, "input {id}"),
             Node::Add(lhs, rhs) => write!(f, "add {lhs:?} {rhs:?}"),
             Node::Mul(lhs, rhs) => write!(f, "mul {lhs:?} {rhs:?}"),
@@ -264,10 +264,16 @@ impl Debug for NodeRef<'_> {
         let g = self.graph();
         match *self.node() {
             Node::Copy(offset) => write!(f, "@{offset}"),
-            Node::Const(value) => write!(f, "{value}"),
+            Node::Const(value) => write!(f, "{}", value as i8),
             Node::Input { id } => write!(f, "in{id}"),
             Node::Add(lhs, rhs) => {
-                write!(f, "{:?} + ", &g.get(lhs))?;
+                write!(f, "{:?}", &g.get(lhs))?;
+                if let &Node::Const(rhs) = g.get(rhs).node() {
+                    if (rhs as i8) < 0 {
+                        return write!(f, " - {}", (rhs as i8).unsigned_abs());
+                    }
+                }
+                write!(f, " + ")?;
                 group(f, g.get(rhs), matches!(g[rhs], Node::Add(..)))
             }
             Node::Mul(lhs, rhs) => {

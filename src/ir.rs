@@ -457,7 +457,7 @@ mod tests {
             output @0 + 2
             in0 = input
             guard_shift 2
-            @-1 = @-1 + 255
+            @-1 = @-1 - 1
             @0 = in0
             shift 2
         ";
@@ -474,12 +474,12 @@ mod tests {
         let expect = "
             while @0 != 0 {
                 {
-                    @0 = @0 + 255
+                    @0 = @0 - 1
                 }
                 while @0 != 0 {
                     guard_shift -1
-                    @-1 = @-1 + 255
-                    @0 = @0 + 255
+                    @-1 = @-1 - 1
+                    @0 = @0 - 1
                 }
                 {
                     @0 = @0 + 1
@@ -498,7 +498,7 @@ mod tests {
             }
             while @0 != 0 {
                 guard_shift 1
-                @0 = @0 + 255
+                @0 = @0 - 1
                 @1 = @1 + 1
             }
         ";
@@ -508,7 +508,7 @@ mod tests {
             if @0 != 0 {
                 {
                     guard_shift -1
-                    @-1 = @-1 + (@0 + 255) * 255
+                    @-1 = @-1 + (@0 - 1) * -1
                     @0 = 1
                 }
                 while @0 != 0 {
@@ -544,11 +544,11 @@ mod tests {
         let expect = "
             guard_shift -1
             in0 = input
-            output in0 + 255
+            output in0 - 1
             guard_shift 1
             in1 = input
             @-1 = @-1 + 1
-            @0 = in0 + 254
+            @0 = in0 - 2
             @1 = in1
         ";
         assert!(bb1.compare_pretty(expect, g));
@@ -582,7 +582,7 @@ mod tests {
         Ir::optimize_root(&mut ir, &mut g);
         let expect = "
             guard_shift -1
-            @-1 = @-1 + @0 * 255
+            @-1 = @-1 + @0 * -1
             @0 = 0
         ";
         assert!(Ir::compare_pretty_root(&ir, expect, &g));
@@ -606,7 +606,7 @@ mod tests {
             guard_shift 1
             guard_shift 2
             @0 = 0
-            @1 = @1 + @0 * 254
+            @1 = @1 + @0 * -2
             @2 = @2 + @0 * 3
         ";
         assert!(Ir::compare_pretty_root(&ir, expect, &g));
@@ -621,10 +621,10 @@ mod tests {
             guard_shift 3
             guard_shift 4
             @0 = 0
-            @1 = @1 + @0 * 171
+            @1 = @1 + @0 * -85
             @2 = @2 + @0 * 86
             @3 = @3 + @0 * 85
-            @4 = @4 + @0 * 170
+            @4 = @4 + @0 * -86
         ";
         assert!(Ir::compare_pretty_root(&ir, expect, &g));
     }
@@ -638,7 +638,7 @@ mod tests {
         let expect = "
             repeat @0 times {
                 output @0
-                @0 = @0 + 255
+                @0 = @0 - 1
             }
         ";
         assert!(Ir::compare_pretty_root(&ir, expect, &g));
