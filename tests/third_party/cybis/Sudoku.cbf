@@ -1,0 +1,314 @@
+module Sudoku;
+
+struct Cell
+    
+    index : Byte
+    row : Byte
+    column : Byte
+    block : Byte
+    value : Byte
+    options : [List Byte](9, 0)
+    
+end
+
+struct Sudoku
+
+    cells : [List Cell](81, 2)
+    
+    function init(this, valuesEnum:[Enumerator [List Byte]])
+    
+        this.cells.init();
+        
+        let blocks : (new [List Byte](81, 1)).init((
+            , 0 , 0 , 0  ,  1 , 1 , 1  ,  2 , 2 , 2
+            , 0 , 0 , 0  ,  1 , 1 , 1  ,  2 , 2 , 2
+            , 0 , 0 , 0  ,  1 , 1 , 1  ,  2 , 2 , 2
+                                         
+            , 3 , 3 , 3  ,  4 , 4 , 4  ,  5 , 5 , 5
+            , 3 , 3 , 3  ,  4 , 4 , 4  ,  5 , 5 , 5
+            , 3 , 3 , 3  ,  4 , 4 , 4  ,  5 , 5 , 5
+                                         
+            , 6 , 6 , 6  ,  7 , 7 , 7  ,  8 , 8 , 8
+            , 6 , 6 , 6  ,  7 , 7 , 7  ,  8 , 8 , 8
+            , 6 , 6 , 6  ,  7 , 7 , 7  ,  8 , 8 , 8            
+        ));
+    
+        let blocksEnum : blocks # 0;
+    
+        let index : byte(0);
+    
+        for let row : byte(0) , row < 9 , ++row:
+            for let column : byte(0) , column < 9 , ++column:
+            
+                ++this.cells;
+                let cell : *this.cells;
+                
+                ++blocksEnum;
+                let block : *blocksEnum;
+                
+                ++valuesEnum;
+                let value : *valuesEnum;
+                
+                cell.index = index;
+                cell.row = row;
+                cell.column = column;
+                cell.block = block;
+                cell.value = value;
+                cell.options.init();
+            
+                ++index;
+            
+            end
+        end
+    
+        return this;
+    
+    end
+    
+    function reset_current_cell(this)
+        
+        (this.cells # 0).reset();
+        
+    end
+    
+    function advance_empty_cell(this)
+    
+        let enum : this.cells # 0;
+        let found : byte(0);
+        let advance : ++enum;
+        
+        while advance:
+        
+            if (*enum).value:
+            
+                advance = ++enum;
+                
+            else:
+            
+                --advance;
+                ++found;
+                
+            end
+        
+        end
+    
+        return found;
+    
+    end
+
+    function compute_current_cell_options(this)
+        
+        let valuesTaken : (new [List Byte](27, 1)).init();
+        let currentCell : *(this.cells # 0);
+        let enum : this.cells # 1;
+        
+        currentCell.value = 0;
+        enum.reset();
+        
+        while ++enum:
+        
+            let cell : *enum;
+            
+            if cell.value > 0:
+            
+                if cell.row == currentCell.row:
+                    valuesTaken.append(cell.value);
+                
+                elif cell.column == currentCell.column:
+                    valuesTaken.append(cell.value);
+                
+                elif cell.block == currentCell.block:
+                    valuesTaken.append(cell.value);
+
+                end
+                    
+            end
+                    
+        end
+    
+        currentCell.options.clear();
+    
+        for let value : byte(1) , value <= 9 , ++value:
+            
+            if !(valuesTaken # 0).contains(value):
+                
+                currentCell.options.append(value);
+                
+            end
+            
+        end
+    
+    end
+    
+    function current_cell(this)
+    
+        return *(this.cells # 0);
+        
+    end
+    
+    function set_current_cell(this, index:Byte)
+    
+        let enum : this.cells # 0;
+        
+        enum.reset();
+        ++enum;
+        
+        while (*enum).index != index:
+            ++enum;
+        end
+    
+    end
+    
+    function solve(this)
+    
+        let stack : (new [List Byte](81, 0)).init();
+        let searching : byte(1);
+        let solved : byte(0);
+        
+        this.reset_current_cell();
+        
+        while searching:
+        
+            if this.advance_empty_cell():
+            
+                this.compute_current_cell_options();
+                
+                let currentCell : this.current_cell();
+                var nextValue : Byte
+                
+                if currentCell.options.pop(nextValue):
+                
+                    currentCell.value = nextValue;
+                    stack.append(currentCell.index);
+                
+                else:
+                
+                    currentCell.value = 0;
+                    
+                    let backtracking : byte(1);
+                    
+                    while backtracking:
+                    
+                        var index : Byte
+                        
+                        if stack.pop(index):
+                        
+                            this.set_current_cell(index);
+                            
+                            if currentCell.options.pop(nextValue):
+                            
+                                currentCell.value = nextValue;
+                                stack.append(index);
+                                --backtracking;
+                            
+                            else:
+                            
+                                currentCell.value = 0;
+                            
+                            end
+                        
+                        else:
+                        
+                            --backtracking;
+                            --searching;
+                        
+                        end
+                    
+                    end
+                
+                end
+            
+            else:
+            
+                --searching;
+                ++solved;
+            
+            end
+        
+        end
+        
+        return solved;
+    
+    end
+    
+    function print(this)
+    
+        let enum : this.cells # 1;
+        enum.reset();
+
+        for let k : byte(0) , k < 3 , ++k:
+            for let j : byte(0) , j < 3 , ++j:
+                for let i : byte(0) , i < 3 , ++i:
+                    ++enum; print(bchar((*enum).value + '0'.ordinal));
+                    ++enum; print(bchar((*enum).value + '0'.ordinal));
+                    ++enum; print(bchar((*enum).value + '0'.ordinal));
+                    print(' ');
+                end
+                println();
+            end
+            println();
+        end
+        
+    end
+    
+end
+
+
+function print_title_screen()
+    
+    print('+');  print_repeat('-', 77);                       print("+\n");
+    print('|');  print_center(77, "Sudoku Solver!");          print("|\n");
+    print('|');  print_center(77, "Compiled to Brainfuck!");  print("|\n");
+    print('|');  print_center(77, "By Cybis, 2017");          print("|\n");
+    print('+');  print_repeat('-', 77);                       print("+\n");
+    println();
+    println("Enter your sudoku puzzle.");
+    println("Digits only, 9 digits per line with 9 lines.");
+    println("Use 0 to represent blank cells.");
+    println();
+
+end
+
+function read_initial_values()
+
+    let values : (new [List Byte](81, 1)).init();
+    let buffer : (new [List BChar](50, 1)).init();
+    
+    for let i : byte(0) , i < 9 , ++i:
+        
+        readline(buffer);
+        let bufferEnum : buffer # 0;
+        bufferEnum.reset();
+        
+        for let j : byte(0) , j < 9 , ++j:
+        
+            ++bufferEnum;
+            let c : *bufferEnum;
+            values.append(c.ordinal - '0'.ordinal);
+        
+        end
+        
+    end
+
+    return values;
+    
+end
+
+
+print_title_screen();
+let initialValues : read_initial_values();
+let sudoku : (new Sudoku).init(initialValues # 0);
+
+println();
+println("Solving, please be patient.");
+println("The hardest puzzles can take 5-10 minutes on optimizing interpreters.");
+println();
+
+let solved : sudoku.solve();
+
+if !solved:
+    println("Uh oh. Looks like the puzzle wasn't solvable.");
+    println();
+end
+
+sudoku.print();
