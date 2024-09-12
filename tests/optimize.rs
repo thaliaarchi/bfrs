@@ -46,6 +46,14 @@ fn collatz_optimize() {
 }
 
 #[test]
+fn wikipedia_hello_world_optimize() {
+    test_optimize_file(
+        "tests/third_party/wikipedia/hello_world.b",
+        "tests/third_party/wikipedia/hello_world.ir",
+    );
+}
+
+#[test]
 fn closed_form_loops() {
     test_optimize("[-]", "@0 = 0");
     test_optimize(
