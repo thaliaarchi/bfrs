@@ -10,7 +10,6 @@ use crate::{
 };
 
 // TODO:
-// - Concatenate flattened loops.
 // - Sort `Add` operands by offset.
 // - Move guard_shift out of loops with no net shift. Peel the first iteration
 //   if necessary.
@@ -94,10 +93,17 @@ impl Ir {
         ir
     }
 
-    pub fn optimize_root(ir: &mut [Ir], g: &mut Graph) {
-        for node in ir {
-            node.optimize(g);
+    pub fn optimize_root(ir: &mut Vec<Ir>, g: &mut Graph) {
+        for block in ir.iter_mut() {
+            block.optimize(g);
         }
+        ir.dedup_by(|block2, block1| match (block1, block2) {
+            (Ir::BasicBlock(block1), Ir::BasicBlock(block2)) => {
+                block1.concat(block2, g);
+                true
+            }
+            _ => false,
+        });
     }
 
     /// Optimizes decrement loops and if-style loops.
@@ -147,9 +153,7 @@ impl Ir {
                     }
                 }
             }
-            for block in body.iter_mut() {
-                block.optimize(g);
-            }
+            Ir::optimize_root(body, g);
             match body.last() {
                 Some(Ir::BasicBlock(last)) => {
                     if let Some(offset) = Ir::offset_root(body) {
@@ -503,15 +507,9 @@ mod tests {
         let expect = "
             if @0 != 0 {
                 {
-                    @0 = @0 + 255
-                }
-                {
                     guard_shift -1
-                    @-1 = @-1 + @0 * 255
-                    @0 = 0
-                }
-                {
-                    @0 = @0 + 1
+                    @-1 = @-1 + (@0 + 255) * 255
+                    @0 = 1
                 }
                 while @0 != 0 {
                     guard_shift -1
@@ -523,12 +521,9 @@ mod tests {
             }
             {
                 guard_shift -1
+                @-1 = 0
+                @0 = @0 + @-1
                 offset -1
-            }
-            {
-                guard_shift 1
-                @0 = 0
-                @1 = @1 + @0
             }
         ";
         assert!(Ir::compare_pretty_root(&ir, expect, &g));
