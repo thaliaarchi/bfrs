@@ -54,6 +54,14 @@ fn wikipedia_hello_world_optimize() {
 }
 
 #[test]
+fn rosettacode_hello_world_optimize() {
+    test_optimize_file(
+        "tests/third_party/rosettacode/hello_world.b",
+        "tests/third_party/rosettacode/hello_world.ir",
+    );
+}
+
+#[test]
 fn closed_form_loops() {
     test_optimize("[-]", "@0 = 0");
     test_optimize(

@@ -1,0 +1,37 @@
+guard_shift 1
+guard_shift 2
+guard_shift 3
+guard_shift 4
+guard_shift 5
+guard_shift 6
+guard_shift 7
+guard_shift 8
+guard_shift 9
+output @4 + (@0 + 10) * 7 + 1
+output @8 + (@0 + 10) * 11 + 1
+output @8 + (@0 + 10) * 11 + 1
+output @7 + (@0 + 10) * 10
+output @6 + (@0 + 10) * 9 + 8
+output @9 + (@0 + 10) * 12 + 1
+output @7 + (@0 + 10) * 10 + 1
+output @3 + (@0 + 10) * 4 + 4
+output @2 + (@0 + 10) * 3 + 2
+output @5 + (@0 + 10) * 8 + 7
+output @8 + (@0 + 10) * 11 + 1
+output @8 + (@0 + 10) * 11 + 4
+output @7 + (@0 + 10) * 10 + 8
+output @7 + (@0 + 10) * 10
+output @2 + (@0 + 10) * 3 + 3
+output @1 + @0 + 13
+output @1 + @0 + 10
+@0 = 0
+@1 = @1 + @0 + 10
+@2 = @2 + (@0 + 10) * 3 + 3
+@3 = @3 + (@0 + 10) * 4 + 4
+@4 = @4 + (@0 + 10) * 7 + 1
+@5 = @5 + (@0 + 10) * 8 + 7
+@6 = @6 + (@0 + 10) * 9 + 8
+@7 = @7 + (@0 + 10) * 10
+@8 = @8 + (@0 + 10) * 11 + 4
+@9 = @9 + (@0 + 10) * 12 + 1
+shift 1
