@@ -4,7 +4,7 @@ use std::{
 };
 
 use crate::{
-    graph::{Graph, NodeId},
+    graph::{ByteId, Graph},
     node::Byte,
     Ast,
 };
@@ -38,16 +38,16 @@ pub enum Condition {
     /// Execute if the current cell is non-zero.
     IfNonZero,
     /// Loop a fixed number of times.
-    Count(NodeId),
+    Count(ByteId),
 }
 
 /// Abstract model of a sub-slice of memory and the effects in a basic block.
 #[derive(Clone, PartialEq, Eq)]
 pub struct BasicBlock {
     /// The sub-slice of memory, that is modified by this block.
-    pub(crate) memory: VecDeque<NodeId>,
+    pub(crate) memory: VecDeque<ByteId>,
     /// The input sub-slice of memory, that is read by this block.
-    pub(crate) memory_inputs: VecDeque<NodeId>,
+    pub(crate) memory_inputs: VecDeque<ByteId>,
     /// A sequence of effects in a basic block.
     pub(crate) effects: Vec<Effect>,
     /// The index in `memory` of the initial cell at the start of this basic
@@ -68,9 +68,9 @@ pub struct BasicBlock {
 #[derive(Clone, PartialEq, Eq)]
 pub enum Effect {
     /// Printing a value.
-    Output(NodeId),
+    Output(ByteId),
     /// Reading from the user. The node is always `Node::Input`.
-    Input(NodeId),
+    Input(ByteId),
     /// Guarding that a shift can be performed to an offset.
     GuardShift(isize),
 }
@@ -351,24 +351,24 @@ impl BasicBlock {
         }
     }
 
-    fn get(&self, offset: isize) -> Option<NodeId> {
+    fn get(&self, offset: isize) -> Option<ByteId> {
         usize::try_from(self.origin_index as isize + offset)
             .ok()
             .and_then(|i| self.memory.get(i).copied())
     }
 
-    fn get_mut(&mut self, offset: isize) -> Option<&mut NodeId> {
+    fn get_mut(&mut self, offset: isize) -> Option<&mut ByteId> {
         usize::try_from(self.origin_index as isize + offset)
             .ok()
             .and_then(|i| self.memory.get_mut(i))
     }
 
-    pub(crate) fn cell(&mut self, offset: isize, g: &mut Graph) -> NodeId {
+    pub(crate) fn cell(&mut self, offset: isize, g: &mut Graph) -> ByteId {
         self.reserve(offset, g);
         self.memory[(self.origin_index as isize + offset) as usize]
     }
 
-    fn cell_mut(&mut self, g: &mut Graph) -> &mut NodeId {
+    fn cell_mut(&mut self, g: &mut Graph) -> &mut ByteId {
         self.reserve(self.offset, g);
         &mut self.memory[(self.origin_index as isize + self.offset) as usize]
     }

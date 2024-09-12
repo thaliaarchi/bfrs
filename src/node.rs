@@ -1,9 +1,16 @@
 use std::mem;
 
 use crate::{
-    graph::{Graph, NodeId, NodeRef},
+    graph::{ArrayId, ByteId, Graph, NodeRef},
     ir::BasicBlock,
 };
+
+/// A node in a graph.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum Node {
+    Byte(Byte),
+    Array(Array),
+}
 
 /// A byte value in a graph.
 #[derive(Clone, PartialEq, Eq, Hash)]
@@ -15,15 +22,21 @@ pub enum Byte {
     /// A value read from the user.
     Input { id: usize },
     /// Addition of two values.
-    Add(NodeId, NodeId),
+    Add(ByteId, ByteId),
     /// Multiplication of two values.
-    Mul(NodeId, NodeId),
+    Mul(ByteId, ByteId),
+}
+
+/// An array with static size and dynamic elements.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct Array {
+    pub elements: Vec<ByteId>,
 }
 
 impl Byte {
     /// Inserts this byte node into the graph and transforms it to its ideal
     /// representation.
-    pub fn idealize(self, g: &mut Graph) -> NodeId {
+    pub fn idealize(self, g: &mut Graph) -> ByteId {
         match self {
             Byte::Copy(_) | Byte::Const(_) | Byte::Input { .. } => self.insert(g),
             Byte::Add(mut lhs, mut rhs) => {
@@ -81,18 +94,12 @@ impl Byte {
 
     /// Gets or inserts this node into a graph and returns its ID.
     #[inline]
-    pub fn insert(self, g: &mut Graph) -> NodeId {
-        g.insert(self)
-    }
-
-    /// Gets the ID of this node in a graph.
-    #[inline]
-    pub fn find(&self, g: &Graph) -> Option<NodeId> {
-        g.find(self)
+    pub fn insert(self, g: &mut Graph) -> ByteId {
+        g.insert_byte(self)
     }
 }
 
-impl NodeRef<'_> {
+impl NodeRef<'_, ByteId> {
     /// Returns whether this node references a cell besides at the given offset.
     pub fn references_other(&self, offset: isize) -> bool {
         match *self.node() {
@@ -106,8 +113,8 @@ impl NodeRef<'_> {
     }
 }
 
-impl NodeId {
-    pub fn rebase(&self, bb: &mut BasicBlock, g: &mut Graph) -> NodeId {
+impl ByteId {
+    pub fn rebase(&self, bb: &mut BasicBlock, g: &mut Graph) -> ByteId {
         match g[*self] {
             Byte::Copy(offset) => bb.cell(bb.offset() + offset, g),
             Byte::Const(c) => Byte::Const(c).insert(g),
@@ -118,6 +125,14 @@ impl NodeId {
             Byte::Add(lhs, rhs) => Byte::Add(lhs.rebase(bb, g), rhs.rebase(bb, g)).idealize(g),
             Byte::Mul(lhs, rhs) => Byte::Mul(lhs.rebase(bb, g), rhs.rebase(bb, g)).idealize(g),
         }
+    }
+}
+
+impl Array {
+    /// Gets or inserts this node into a graph and returns its ID.
+    #[inline]
+    pub fn insert(self, g: &mut Graph) -> ArrayId {
+        g.insert_array(self)
     }
 }
 
