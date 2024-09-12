@@ -122,7 +122,7 @@ impl<'a> PrettyPrinter<'a> {
 
         if bb.offset != 0 {
             self.indent(indent)?;
-            write!(self.w, "offset {}\n", bb.offset)?;
+            write!(self.w, "shift {}\n", bb.offset)?;
         }
         Ok(())
     }

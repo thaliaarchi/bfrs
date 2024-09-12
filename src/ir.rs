@@ -459,7 +459,7 @@ mod tests {
             guard_shift 2
             @-1 = @-1 + 255
             @0 = in0
-            offset 2
+            shift 2
         ";
         assert!(Ir::compare_pretty_root(&ir, expect, &g));
     }
@@ -489,12 +489,12 @@ mod tests {
                     guard_shift -2
                     guard_shift -3
                     guard_shift -4
-                    offset -4
+                    shift -4
                 }
             }
             {
                 guard_shift -1
-                offset -1
+                shift -1
             }
             while @0 != 0 {
                 guard_shift 1
@@ -516,14 +516,14 @@ mod tests {
                     guard_shift -2
                     guard_shift -3
                     guard_shift -4
-                    offset -4
+                    shift -4
                 }
             }
             {
                 guard_shift -1
                 @-1 = 0
                 @0 = @0 + @-1
-                offset -1
+                shift -1
             }
         ";
         assert!(Ir::compare_pretty_root(&ir, expect, &g));
