@@ -3,7 +3,7 @@ use std::fmt::{self, Write};
 use crate::{
     graph::Graph,
     ir::{BasicBlock, Condition, Effect, Ir},
-    node::Node,
+    node::Byte,
 };
 
 struct PrettyPrinter<'a> {
@@ -70,7 +70,7 @@ impl<'a> PrettyPrinter<'a> {
                 Effect::Output(value) => write!(self.w, "output {:?}", value.get(g))?,
                 Effect::Input(value) => {
                     write!(self.w, "{:?} = input", value.get(g))?;
-                    if let Node::Input { id } = g[value] {
+                    if let Byte::Input { id } = g[value] {
                         if id != inputs {
                             write!(self.w, " # BUG: unordered")?;
                         }
@@ -114,7 +114,7 @@ impl<'a> PrettyPrinter<'a> {
 
         for (offset, node) in (bb.min_offset()..)
             .zip(bb.memory.iter())
-            .filter(|&(offset, &node)| g[node] != Node::Copy(offset))
+            .filter(|&(offset, &node)| g[node] != Byte::Copy(offset))
         {
             self.indent(indent)?;
             write!(self.w, "@{offset} = {:?}\n", node.get(g))?;

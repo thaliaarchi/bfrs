@@ -5,7 +5,7 @@ use std::{
 
 use crate::{
     graph::{Graph, NodeId},
-    node::Node,
+    node::Byte,
     Ast,
 };
 
@@ -138,17 +138,17 @@ impl Ir {
             if let [Ir::BasicBlock(bb)] = body.as_mut_slice() {
                 if bb.offset == 0 {
                     if let Some(current) = bb.get(0) {
-                        if let Node::Add(lhs, rhs) = g[current] {
-                            if let (Node::Copy(0), &Node::Const(rhs)) = (&g[lhs], &g[rhs]) {
+                        if let Byte::Add(lhs, rhs) = g[current] {
+                            if let (Byte::Copy(0), &Byte::Const(rhs)) = (&g[lhs], &g[rhs]) {
                                 if let Some(iterations) = mod_inverse(rhs.wrapping_neg()) {
-                                    let addend = Node::Mul(lhs, Node::Const(iterations).insert(g))
+                                    let addend = Byte::Mul(lhs, Byte::Const(iterations).insert(g))
                                         .idealize(g);
                                     if !bb.memory.iter().zip(bb.min_offset()..).any(
                                         |(&cell, offset)| {
                                             cell.get(g).references_other(offset)
                                                 || matches!(
                                                     g[cell],
-                                                    Node::Input { .. } | Node::Mul(..)
+                                                    Byte::Input { .. } | Byte::Mul(..)
                                                 )
                                         },
                                     ) {
@@ -157,12 +157,12 @@ impl Ir {
                                             .iter()
                                             .all(|effect| matches!(effect, Effect::GuardShift(_)))
                                         {
-                                            *bb.get_mut(0).unwrap() = Node::Const(0).insert(g);
+                                            *bb.get_mut(0).unwrap() = Byte::Const(0).insert(g);
                                             for cell in &mut bb.memory {
-                                                if let Node::Add(lhs, rhs) = g[*cell] {
-                                                    *cell = Node::Add(
+                                                if let Byte::Add(lhs, rhs) = g[*cell] {
+                                                    *cell = Byte::Add(
                                                         lhs,
-                                                        Node::Mul(rhs, addend).idealize(g),
+                                                        Byte::Mul(rhs, addend).idealize(g),
                                                     )
                                                     .idealize(g);
                                                 }
@@ -187,11 +187,11 @@ impl Ir {
                     Ir::BasicBlock(bb) => {
                         if let Some(v) = bb.get(bb.offset()) {
                             match g[v] {
-                                Node::Const(0) => {
+                                Byte::Const(0) => {
                                     guaranteed_zero = true;
                                     break;
                                 }
-                                Node::Copy(0) => {}
+                                Byte::Copy(0) => {}
                                 _ => {
                                     guaranteed_zero = false;
                                     break;
@@ -247,18 +247,18 @@ impl BasicBlock {
             }
             Ast::Inc => {
                 let cell = self.cell_mut(g);
-                *cell = Node::Add(*cell, Node::Const(1).insert(g)).idealize(g)
+                *cell = Byte::Add(*cell, Byte::Const(1).insert(g)).idealize(g)
             }
             Ast::Dec => {
                 let cell = self.cell_mut(g);
-                *cell = Node::Add(*cell, Node::Const(255).insert(g)).idealize(g)
+                *cell = Byte::Add(*cell, Byte::Const(255).insert(g)).idealize(g)
             }
             Ast::Output => {
                 let value = self.cell(self.offset, g);
                 self.effects.push(Effect::Output(value));
             }
             Ast::Input => {
-                let input = Node::Input { id: self.inputs }.insert(g);
+                let input = Byte::Input { id: self.inputs }.insert(g);
                 *self.cell_mut(g) = input;
                 self.effects.push(Effect::Input(input));
                 self.inputs += 1;
@@ -277,10 +277,10 @@ impl BasicBlock {
                     *value = value.rebase(self, g);
                 }
                 Effect::Input(value) => {
-                    let Node::Input { id } = g[*value] else {
+                    let Byte::Input { id } = g[*value] else {
                         panic!("invalid node in input");
                     };
-                    *value = Node::Input {
+                    *value = Byte::Input {
                         id: id + self.inputs,
                     }
                     .insert(g);
@@ -335,7 +335,7 @@ impl BasicBlock {
             self.memory.reserve(n);
             self.memory_inputs.reserve(n);
             for i in (offset..self.min_offset()).rev() {
-                let copy = Node::Copy(i).insert(g);
+                let copy = Byte::Copy(i).insert(g);
                 self.memory.push_front(copy);
                 self.memory_inputs.push_front(copy);
             }
@@ -344,7 +344,7 @@ impl BasicBlock {
             let n = (offset - self.max_offset()) as usize + 1;
             self.memory.reserve(n);
             for i in self.max_offset()..=offset {
-                let copy = Node::Copy(i).insert(g);
+                let copy = Byte::Copy(i).insert(g);
                 self.memory.push_back(copy);
                 self.memory_inputs.push_back(copy);
             }
