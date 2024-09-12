@@ -94,6 +94,28 @@ impl Ir {
     }
 
     pub fn optimize_root(ir: &mut Vec<Ir>, g: &mut Graph) {
+        let first_non_loop = ir
+            .iter()
+            .position(|block| !matches!(block, Ir::Loop { .. }))
+            .unwrap_or(0);
+        ir.drain(..first_non_loop);
+        Ir::optimize_blocks(ir, g);
+    }
+
+    fn optimize_blocks(ir: &mut Vec<Ir>, g: &mut Graph) {
+        ir.dedup_by(|block2, block1| match (block1, block2) {
+            (
+                Ir::Loop {
+                    condition: Condition::WhileNonZero,
+                    ..
+                },
+                Ir::Loop {
+                    condition: Condition::WhileNonZero,
+                    ..
+                },
+            ) => true,
+            _ => false,
+        });
         for block in ir.iter_mut() {
             block.optimize(g);
         }
@@ -153,7 +175,7 @@ impl Ir {
                     }
                 }
             }
-            Ir::optimize_root(body, g);
+            Ir::optimize_blocks(body, g);
             match body.last() {
                 Some(Ir::BasicBlock(last)) => {
                     if let Some(offset) = Ir::offset_root(body) {
