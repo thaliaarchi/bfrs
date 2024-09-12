@@ -96,6 +96,15 @@ fn closed_form_loops() {
             @4 = @4 + @0 * -86
         ",
     );
+
+    test_optimize(
+        "[->+<][->+<]",
+        "
+            guard_shift 1
+            @0 = 0
+            @1 = @1 + @0
+        ",
+    );
 }
 
 #[test]
@@ -117,6 +126,46 @@ fn fixed_repetition_loops() {
                 guard_shift 1
                 @0 = @0 + 15
                 @1 = @1 + 2
+            }
+        ",
+    );
+}
+
+#[test]
+fn missed_optimizations() {
+    test_optimize(
+        "[]",
+        "
+            while @0 != 0 {
+            }
+        ",
+    );
+    test_optimize(
+        "[[-]]",
+        "
+            if @0 != 0 {
+                @0 = 0
+            }
+        ",
+    );
+    test_optimize(
+        "><[[->+<]]",
+        "
+            {
+                guard_shift 1
+            }
+            if @0 != 0 {
+                guard_shift 1
+                @0 = 0
+                @1 = @1 + @0
+            }
+        ",
+    );
+    test_optimize(
+        "[--]",
+        "
+            while @0 != 0 {
+                @0 = @0 - 2
             }
         ",
     );

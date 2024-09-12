@@ -10,6 +10,10 @@ use crate::{
 };
 
 // TODO:
+// - Transforming a loop with shifts to its closed form is unsound, when those
+//   shifts have not already been guarded.
+// - Check for guaranteed zero recursively instead of iteratively.
+// - Add infinite loop condition.
 // - Sort `Add` operands by offset.
 // - Move guard_shift out of loops with no net shift. Peel the first iteration
 //   if necessary.
