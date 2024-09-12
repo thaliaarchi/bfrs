@@ -176,44 +176,34 @@ impl Ir {
                 }
             }
             Ir::optimize_blocks(body, g);
-            match body.last() {
-                Some(Ir::BasicBlock(last)) => {
-                    if let Some(offset) = Ir::offset_root(body) {
-                        if let Some(v) = last.get(offset) {
-                            if g[v] == Node::Const(0) {
-                                *condition = Condition::IfNonZero;
+            let mut guaranteed_zero = false;
+            let mut offset = 0;
+            for block in body.iter().rev() {
+                match block {
+                    Ir::BasicBlock(bb) => {
+                        if let Some(v) = bb.get(bb.offset()) {
+                            match g[v] {
+                                Node::Const(0) => {
+                                    guaranteed_zero = true;
+                                    break;
+                                }
+                                Node::Copy(0) => {}
+                                _ => {
+                                    guaranteed_zero = false;
+                                    break;
+                                }
                             }
                         }
+                        offset += bb.offset();
+                    }
+                    Ir::Loop { .. } => {
+                        guaranteed_zero = offset == 0;
+                        break;
                     }
                 }
-                Some(Ir::Loop { .. }) => {
-                    *condition = Condition::IfNonZero;
-                }
-                None => {}
             }
-        }
-    }
-
-    fn offset_root(ir: &[Self]) -> Option<isize> {
-        let mut offset = 0;
-        for bb in ir {
-            offset += bb.offset()?;
-        }
-        Some(offset)
-    }
-
-    fn offset(&self) -> Option<isize> {
-        match self {
-            Ir::BasicBlock(bb) => Some(bb.offset),
-            Ir::Loop { body, .. } => {
-                let mut offset = 0;
-                for bb in body {
-                    offset += bb.offset()?;
-                }
-                if offset != 0 {
-                    return None;
-                }
-                Some(offset)
+            if guaranteed_zero {
+                *condition = Condition::IfNonZero;
             }
         }
     }
