@@ -49,6 +49,12 @@ impl Byte {
                 match (&g[lhs], &g[rhs]) {
                     (_, Byte::Const(0)) => lhs,
                     (_, _) if lhs == rhs => Byte::Mul(lhs, Byte::Const(2).insert(g)).idealize(g),
+                    (&Byte::Mul(a, b), _) if a == rhs && matches!(g[b], Byte::Const(255)) => {
+                        Byte::Const(0).insert(g)
+                    }
+                    (_, &Byte::Mul(b, c)) if lhs == b && matches!(g[c], Byte::Const(255)) => {
+                        Byte::Const(0).insert(g)
+                    }
                     (_, &Byte::Add(b, c)) => {
                         Byte::Add(Byte::Add(lhs, b).idealize(g), c).idealize(g)
                     }

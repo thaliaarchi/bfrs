@@ -148,6 +148,36 @@ fn fixed_repetition_loops() {
 }
 
 #[test]
+fn sub_eq() {
+    // x - x => 0
+    test_optimize(
+        ",>[-]>[-]<<[->+>+<<]>[->-<]",
+        "
+            in0 = input
+            guard_shift 1
+            guard_shift 2
+            @0 = 0
+            @1 = 0
+            @2 = 0
+            shift 1
+        ",
+    );
+    // -x + x => 0
+    test_optimize(
+        ",>[-]>[-]<<[->+>-<<]>[->+<]",
+        "
+            in0 = input
+            guard_shift 1
+            guard_shift 2
+            @0 = 0
+            @1 = 0
+            @2 = 0
+            shift 1
+        ",
+    );
+}
+
+#[test]
 fn missed_optimizations() {
     test_optimize(
         "[]",
@@ -183,6 +213,32 @@ fn missed_optimizations() {
             while @0 != 0 {
                 @0 = @0 - 2
             }
+        ",
+    );
+    // x - x => 0
+    test_optimize(
+        ",[->+>+<<]>[->-<]",
+        "
+            in0 = input
+            guard_shift 1
+            guard_shift 2
+            @0 = 0
+            @1 = 0
+            @2 = @2 + in0 + (@1 + in0) * -1
+            shift 1
+        ",
+    );
+    // -x + x => 0
+    test_optimize(
+        ",[->+>-<<]>[->+<]",
+        "
+            in0 = input
+            guard_shift 1
+            guard_shift 2
+            @0 = 0
+            @1 = 0
+            @2 = @2 + in0 * -1 + @1 + in0
+            shift 1
         ",
     );
 }
