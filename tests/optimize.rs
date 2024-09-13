@@ -241,4 +241,132 @@ fn missed_optimizations() {
             shift 1
         ",
     );
+    test_optimize(
+        "
+            ,>[-]>[-]>[-]>[-]>[-]>[-]<<<<<<
+            [>[-]++++[>++>+++>+++>+<<<<-]>+>+>->>+<<<<<<-]
+        ",
+        "
+            {
+                in0 = input
+                guard_shift 1
+                guard_shift 2
+                guard_shift 3
+                guard_shift 4
+                guard_shift 5
+                guard_shift 6
+                @0 = in0
+                @1 = 0
+                @2 = 0
+                @3 = 0
+                @4 = 0
+                @5 = 0
+                @6 = 0
+            }
+            while @0 != 0 {
+                guard_shift 1
+                guard_shift 2
+                guard_shift 3
+                guard_shift 4
+                guard_shift 5
+                guard_shift 6
+                @0 = @0 - 1
+                @1 = 0
+                @2 = @2 + 9
+                @3 = @3 + 13
+                @4 = @4 + 11
+                @5 = @5 + 4
+                @6 = @6 + 1
+            }
+        ",
+    );
+    test_optimize(
+        "
+            ,>[-]>[-]>[-]>[-]>[-]>[-]<<<<<<
+            [>++++[>++>+++>+++>+<<<<-]>+>+>->>+<<<<<<-]
+        ",
+        "
+            {
+                in0 = input
+                guard_shift 1
+                guard_shift 2
+                guard_shift 3
+                guard_shift 4
+                guard_shift 5
+                guard_shift 6
+                @0 = in0
+                @1 = 0
+                @2 = 0
+                @3 = 0
+                @4 = 0
+                @5 = 0
+                @6 = 0
+            }
+            while @0 != 0 {
+                guard_shift 1
+                guard_shift 2
+                guard_shift 3
+                guard_shift 4
+                guard_shift 5
+                guard_shift 6
+                @0 = @0 - 1
+                @1 = 0
+                @2 = @2 + (@1 + 4) * 2 + 1
+                @3 = @3 + (@1 + 4) * 3 + 1
+                @4 = @4 + (@1 + 4) * 3 - 1
+                @5 = @5 + @1 + 4
+                @6 = @6 + 1
+            }
+        ",
+    );
+    test_optimize(
+        "
+            ,>[-]>[-]>[-]>[-]>[-]>[-]<<<<<<
+            [>++++[>++>+++>+++>+<<<<-]>+>+>->>+[<]<-]
+        ",
+        "
+            {
+                in0 = input
+                guard_shift 1
+                guard_shift 2
+                guard_shift 3
+                guard_shift 4
+                guard_shift 5
+                guard_shift 6
+                @0 = in0
+                @1 = 0
+                @2 = 0
+                @3 = 0
+                @4 = 0
+                @5 = 0
+                @6 = 0
+            }
+            while @0 != 0 {
+                {
+                    guard_shift 1
+                    guard_shift 2
+                    guard_shift 3
+                    guard_shift 4
+                    guard_shift 5
+                    guard_shift 6
+                    @1 = 0
+                    @2 = @2 + (@1 + 4) * 2 + 1
+                    @3 = @3 + (@1 + 4) * 3 + 1
+                    @4 = @4 + (@1 + 4) * 3 - 1
+                    @5 = @5 + @1 + 4
+                    @6 = @6 + 1
+                    shift 6
+                }
+                while @0 != 0 {
+                    guard_shift -1
+                    shift -1
+                }
+                {
+                    guard_shift -1
+                    @-1 = @-1 - 1
+                    shift -1
+                }
+            }
+        ",
+    );
 }
