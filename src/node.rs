@@ -40,59 +40,89 @@ impl Byte {
         match self {
             Byte::Copy(_) | Byte::Const(_) | Byte::Input { .. } => self.insert(g),
             Byte::Add(mut lhs, mut rhs) => {
-                if let Byte::Const(a) = g[lhs] {
-                    if let Byte::Const(b) = g[rhs] {
-                        return Byte::Const(a.wrapping_add(b)).insert(g);
+                if let Byte::Add(b, c) = g[rhs] {
+                    if let Byte::Add(..) = g[lhs] {
+                        return Byte::Add(Byte::Add(lhs, b).idealize(g), c).idealize(g);
                     }
                     mem::swap(&mut lhs, &mut rhs);
                 }
-                match (&g[lhs], &g[rhs]) {
-                    (_, Byte::Const(0)) => lhs,
-                    (_, _) if lhs == rhs => Byte::Mul(lhs, Byte::Const(2).insert(g)).idealize(g),
+                let (tail, head) = match g[lhs] {
+                    Byte::Add(a, b) => (Some(a), b),
+                    _ => (None, lhs),
+                };
+                let (res, idealize) = match (&g[head], &g[rhs]) {
+                    (&Byte::Const(a), &Byte::Const(b)) => {
+                        (Byte::Const(a.wrapping_add(b)).insert(g), false)
+                    }
+                    (_, Byte::Const(0)) => (head, false),
+                    (Byte::Const(0), _) => (rhs, true),
+                    (Byte::Const(_), _) => {
+                        if let Some(tail) = tail {
+                            return Byte::Add(Byte::Add(tail, rhs).idealize(g), head).idealize(g);
+                        } else {
+                            return Byte::Add(rhs, head).insert(g);
+                        }
+                    }
+                    _ if head == rhs => {
+                        (Byte::Mul(head, Byte::Const(2).insert(g)).idealize(g), true)
+                    }
                     (&Byte::Mul(a, b), _) if a == rhs && matches!(g[b], Byte::Const(255)) => {
-                        Byte::Const(0).insert(g)
+                        (Byte::Const(0).insert(g), false)
                     }
-                    (_, &Byte::Mul(b, c)) if lhs == b && matches!(g[c], Byte::Const(255)) => {
-                        Byte::Const(0).insert(g)
+                    (_, &Byte::Mul(b, c)) if b == head && matches!(g[c], Byte::Const(255)) => {
+                        (Byte::Const(0).insert(g), false)
                     }
-                    (_, &Byte::Add(b, c)) => {
-                        Byte::Add(Byte::Add(lhs, b).idealize(g), c).idealize(g)
+                    _ => return Byte::Add(lhs, rhs).insert(g),
+                };
+                if let Some(tail) = tail {
+                    if res == head {
+                        lhs
+                    } else if idealize {
+                        Byte::Add(tail, res).idealize(g)
+                    } else {
+                        Byte::Add(tail, res).insert(g)
                     }
-                    (&Byte::Add(a, b), _) => match (&g[b], &g[rhs]) {
-                        (&Byte::Const(b), &Byte::Const(c)) => {
-                            Byte::Add(a, Byte::Const(b.wrapping_add(c)).insert(g)).idealize(g)
-                        }
-                        (&Byte::Const(_), _) => {
-                            Byte::Add(Byte::Add(a, rhs).idealize(g), b).idealize(g)
-                        }
-                        _ => Byte::Add(lhs, rhs).insert(g),
-                    },
-                    _ => Byte::Add(lhs, rhs).insert(g),
+                } else {
+                    res
                 }
             }
             Byte::Mul(mut lhs, mut rhs) => {
-                if let Byte::Const(a) = g[lhs] {
-                    if let Byte::Const(b) = g[rhs] {
-                        return Byte::Const(a.wrapping_mul(b)).insert(g);
+                if let Byte::Mul(b, c) = g[rhs] {
+                    if let Byte::Mul(..) = g[lhs] {
+                        return Byte::Mul(Byte::Mul(lhs, b).idealize(g), c).idealize(g);
                     }
                     mem::swap(&mut lhs, &mut rhs);
                 }
-                match (&g[lhs], &g[rhs]) {
-                    (_, Byte::Const(1)) => lhs,
-                    (_, Byte::Const(0)) => Byte::Const(0).insert(g),
-                    (_, &Byte::Mul(b, c)) => {
-                        Byte::Mul(Byte::Mul(lhs, b).idealize(g), c).idealize(g)
+                let (tail, head) = match g[lhs] {
+                    Byte::Mul(a, b) => (Some(a), b),
+                    _ => (None, lhs),
+                };
+                let (res, idealize) = match (&g[head], &g[rhs]) {
+                    (&Byte::Const(a), &Byte::Const(b)) => {
+                        (Byte::Const(a.wrapping_mul(b)).insert(g), false)
                     }
-                    (&Byte::Mul(a, b), _) => match (&g[b], &g[rhs]) {
-                        (&Byte::Const(b), &Byte::Const(c)) => {
-                            Byte::Mul(a, Byte::Const(b.wrapping_mul(c)).insert(g)).idealize(g)
+                    (_, Byte::Const(1)) => (head, false),
+                    (Byte::Const(1), _) => (rhs, true),
+                    (_, Byte::Const(0)) | (Byte::Const(0), _) => return Byte::Const(0).insert(g),
+                    (Byte::Const(_), _) => {
+                        if let Some(tail) = tail {
+                            return Byte::Mul(Byte::Mul(tail, rhs).idealize(g), head).idealize(g);
+                        } else {
+                            return Byte::Mul(rhs, head).insert(g);
                         }
-                        (&Byte::Const(_), _) => {
-                            Byte::Mul(Byte::Mul(a, rhs).idealize(g), b).idealize(g)
-                        }
-                        _ => Byte::Mul(lhs, rhs).insert(g),
-                    },
-                    _ => Byte::Mul(lhs, rhs).insert(g),
+                    }
+                    _ => return Byte::Mul(lhs, rhs).insert(g),
+                };
+                if let Some(tail) = tail {
+                    if res == head {
+                        lhs
+                    } else if idealize {
+                        Byte::Mul(tail, res).idealize(g)
+                    } else {
+                        Byte::Mul(tail, res).insert(g)
+                    }
+                } else {
+                    res
                 }
             }
         }
