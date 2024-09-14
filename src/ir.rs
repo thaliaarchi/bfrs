@@ -50,9 +50,8 @@ pub struct BasicBlock {
     pub(crate) memory_inputs: VecDeque<ByteId>,
     /// A sequence of effects in a basic block.
     pub(crate) effects: Vec<Effect>,
-    /// The index in `memory` of the initial cell at the start of this basic
-    /// block.
-    pub(crate) origin_index: usize,
+    /// The offset of the first cell in `memory` of this basic block.
+    pub(crate) min_offset: isize,
     /// The offset of the current cell relative to the initial cell of this
     /// basic block.
     pub(crate) offset: isize,
@@ -145,7 +144,7 @@ impl Ir {
                                 if let Some(iterations) = mod_inverse(rhs.wrapping_neg()) {
                                     let addend = Byte::Mul(lhs, Byte::Const(iterations).insert(g))
                                         .idealize(g);
-                                    if !bb.memory.iter().zip(bb.min_offset()..).any(
+                                    if !bb.memory.iter().zip(bb.min_offset..).any(
                                         |(&cell, offset)| {
                                             cell.get(g).references_other(offset)
                                                 || matches!(
@@ -222,7 +221,7 @@ impl BasicBlock {
             memory: VecDeque::new(),
             memory_inputs: VecDeque::new(),
             effects: Vec::new(),
-            origin_index: 0,
+            min_offset: 0,
             offset: 0,
             guarded_left: 0,
             guarded_right: 0,
@@ -304,11 +303,11 @@ impl BasicBlock {
         for cell in &mut other.memory {
             *cell = cell.rebase(self, g);
         }
-        let min_offset = self.offset + other.min_offset();
+        let min_offset = self.offset + other.min_offset;
         self.reserve(min_offset, g);
         self.reserve((self.offset + other.max_offset() - 1).max(min_offset), g);
         for (i, cell) in other.memory.drain(..).enumerate() {
-            self.memory[(self.origin_index as isize + min_offset) as usize + i] = cell;
+            self.memory[(min_offset - self.min_offset) as usize + i] = cell;
         }
         self.guarded_left = self.guarded_left.min(self.offset + other.guarded_left);
         self.guarded_right = self.guarded_right.max(self.offset + other.guarded_right);
@@ -355,11 +354,11 @@ impl BasicBlock {
     }
 
     pub fn min_offset(&self) -> isize {
-        -(self.origin_index as isize)
+        self.min_offset
     }
 
     pub fn max_offset(&self) -> isize {
-        self.min_offset() + self.memory.len() as isize
+        self.min_offset + self.memory.len() as isize
     }
 
     pub fn inputs(&self) -> usize {
@@ -367,19 +366,25 @@ impl BasicBlock {
     }
 
     fn reserve(&mut self, offset: isize, g: &mut Graph) {
-        if offset < self.min_offset() {
-            let n = (self.min_offset() - offset) as usize;
+        if self.memory.is_empty() {
+            let copy = Byte::Copy(offset).insert(g);
+            self.memory.push_front(copy);
+            self.memory_inputs.push_front(copy);
+            self.min_offset = offset;
+        } else if offset < self.min_offset {
+            let n = (self.min_offset - offset) as usize;
             self.memory.reserve(n);
             self.memory_inputs.reserve(n);
-            for i in (offset..self.min_offset()).rev() {
+            for i in (offset..self.min_offset).rev() {
                 let copy = Byte::Copy(i).insert(g);
                 self.memory.push_front(copy);
                 self.memory_inputs.push_front(copy);
             }
-            self.origin_index += n;
+            self.min_offset = offset;
         } else if offset >= self.max_offset() {
             let n = (offset - self.max_offset()) as usize + 1;
             self.memory.reserve(n);
+            self.memory_inputs.reserve(n);
             for i in self.max_offset()..=offset {
                 let copy = Byte::Copy(i).insert(g);
                 self.memory.push_back(copy);
@@ -389,25 +394,25 @@ impl BasicBlock {
     }
 
     fn get(&self, offset: isize) -> Option<ByteId> {
-        usize::try_from(self.origin_index as isize + offset)
+        usize::try_from(offset - self.min_offset)
             .ok()
             .and_then(|i| self.memory.get(i).copied())
     }
 
     fn get_mut(&mut self, offset: isize) -> Option<&mut ByteId> {
-        usize::try_from(self.origin_index as isize + offset)
+        usize::try_from(offset - self.min_offset)
             .ok()
             .and_then(|i| self.memory.get_mut(i))
     }
 
     pub(crate) fn cell(&mut self, offset: isize, g: &mut Graph) -> ByteId {
         self.reserve(offset, g);
-        self.memory[(self.origin_index as isize + offset) as usize]
+        self.memory[(offset - self.min_offset) as usize]
     }
 
     fn cell_mut(&mut self, g: &mut Graph) -> &mut ByteId {
         self.reserve(self.offset, g);
-        &mut self.memory[(self.origin_index as isize + self.offset) as usize]
+        &mut self.memory[(self.offset - self.min_offset) as usize]
     }
 }
 
@@ -430,7 +435,7 @@ impl Debug for BasicBlock {
             fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
                 f.debug_map()
                     .entries(
-                        (self.0.min_offset()..)
+                        (self.0.min_offset..)
                             .zip(self.0.memory.iter())
                             .map(|(offset, &node)| (offset, node)),
                     )
