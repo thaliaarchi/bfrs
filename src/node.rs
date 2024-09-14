@@ -277,7 +277,7 @@ impl NodeRef<'_, ByteId> {
 impl ByteId {
     pub fn rebase(&self, bb: &mut BasicBlock, g: &mut Graph) -> ByteId {
         match g[*self] {
-            Byte::Copy(offset) => bb.cell(bb.offset() + offset, g),
+            Byte::Copy(offset) => *bb.get_or_copy(bb.offset() + offset, g),
             Byte::Const(c) => Byte::Const(c).insert(g),
             Byte::Input { id } => Byte::Input {
                 id: id + bb.inputs(),

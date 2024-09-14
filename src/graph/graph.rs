@@ -127,6 +127,11 @@ impl Graph {
     {
         NodeRef { graph: self, id }
     }
+
+    /// Returns the number of nodes in this graph.
+    pub fn len(&self) -> usize {
+        self.nodes.len()
+    }
 }
 
 #[cfg(debug_assertions)]

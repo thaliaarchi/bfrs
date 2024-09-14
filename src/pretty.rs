@@ -112,12 +112,13 @@ impl<'a> PrettyPrinter<'a> {
             write!(self.w, "\n")?;
         }
 
-        for (offset, node) in (bb.min_offset()..)
-            .zip(bb.memory.iter())
-            .filter(|&(offset, &node)| g[node] != Byte::Copy(offset))
-        {
-            self.indent(indent)?;
-            write!(self.w, "@{offset} = {:?}\n", node.get(g))?;
+        for (offset, &node) in (bb.min_offset()..).zip(bb.memory.iter()) {
+            if let Some(node) = node {
+                if g[node] != Byte::Copy(offset) {
+                    self.indent(indent)?;
+                    write!(self.w, "@{offset} = {:?}\n", node.get(g))?;
+                }
+            }
         }
 
         if bb.offset != 0 {

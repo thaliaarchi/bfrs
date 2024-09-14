@@ -1,6 +1,7 @@
 use std::{
     collections::VecDeque,
     fmt::{self, Debug, Formatter},
+    ops::RangeInclusive,
 };
 
 use crate::{
@@ -45,9 +46,9 @@ pub enum Condition {
 #[derive(Clone, PartialEq, Eq)]
 pub struct BasicBlock {
     /// The sub-slice of memory, that is modified by this block.
-    pub(crate) memory: VecDeque<ByteId>,
+    pub(crate) memory: VecDeque<Option<ByteId>>,
     /// The input sub-slice of memory, that is read by this block.
-    pub(crate) memory_inputs: VecDeque<ByteId>,
+    pub(crate) memory_copies: VecDeque<Option<ByteId>>,
     /// A sequence of effects in a basic block.
     pub(crate) effects: Vec<Effect>,
     /// The offset of the first cell in `memory` of this basic block.
@@ -146,11 +147,13 @@ impl Ir {
                                         .idealize(g);
                                     if !bb.memory.iter().zip(bb.min_offset..).any(
                                         |(&cell, offset)| {
-                                            cell.get(g).references_other(offset)
-                                                || matches!(
-                                                    g[cell],
-                                                    Byte::Input { .. } | Byte::Mul(..)
-                                                )
+                                            matches!(cell, Some(cell)
+                                                if cell.get(g).references_other(offset)
+                                                    || matches!(
+                                                        g[cell],
+                                                        Byte::Input { .. } | Byte::Mul(..)
+                                                    )
+                                            )
                                         },
                                     ) {
                                         if bb
@@ -158,14 +161,16 @@ impl Ir {
                                             .iter()
                                             .all(|effect| matches!(effect, Effect::GuardShift(_)))
                                         {
-                                            *bb.get_mut(0).unwrap() = Byte::Const(0).insert(g);
+                                            *bb.get_mut(0) = Some(Byte::Const(0).insert(g));
                                             for cell in &mut bb.memory {
-                                                if let Byte::Add(lhs, rhs) = g[*cell] {
-                                                    *cell = Byte::Add(
-                                                        lhs,
-                                                        Byte::Mul(rhs, addend).idealize(g),
-                                                    )
-                                                    .idealize(g);
+                                                if let Some(cell) = cell.as_mut() {
+                                                    if let Byte::Add(lhs, rhs) = g[*cell] {
+                                                        *cell = Byte::Add(
+                                                            lhs,
+                                                            Byte::Mul(rhs, addend).idealize(g),
+                                                        )
+                                                        .idealize(g);
+                                                    }
                                                 }
                                             }
                                             let bb = body.drain(..).next().unwrap();
@@ -219,7 +224,7 @@ impl BasicBlock {
     pub fn new() -> Self {
         BasicBlock {
             memory: VecDeque::new(),
-            memory_inputs: VecDeque::new(),
+            memory_copies: VecDeque::new(),
             effects: Vec::new(),
             min_offset: 0,
             offset: 0,
@@ -246,21 +251,18 @@ impl BasicBlock {
                     self.effects.push(Effect::GuardShift(self.guarded_left));
                 }
             }
-            Ast::Inc => {
-                let cell = self.cell_mut(g);
-                *cell = Byte::Add(*cell, Byte::Const(1).insert(g)).idealize(g)
-            }
-            Ast::Dec => {
-                let cell = self.cell_mut(g);
-                *cell = Byte::Add(*cell, Byte::Const(255).insert(g)).idealize(g)
+            Ast::Inc | Ast::Dec => {
+                let n = if op == &Ast::Inc { 1 } else { 255 };
+                let cell = self.get_or_copy(self.offset, g);
+                *cell = Byte::Add(*cell, Byte::Const(n).insert(g)).idealize(g)
             }
             Ast::Output => {
-                let value = self.cell(self.offset, g);
+                let value = *self.get_or_copy(self.offset, g);
                 self.effects.push(Effect::Output(value.as_node_id()));
             }
             Ast::Input => {
                 let input = Byte::Input { id: self.inputs }.insert(g);
-                *self.cell_mut(g) = input;
+                *self.get_mut(self.offset) = Some(input);
                 self.effects.push(Effect::Input(input));
                 self.inputs += 1;
             }
@@ -301,13 +303,16 @@ impl BasicBlock {
         }
         self.combine_outputs(g);
         for cell in &mut other.memory {
-            *cell = cell.rebase(self, g);
+            if let Some(cell) = cell {
+                *cell = cell.rebase(self, g);
+            }
         }
         let min_offset = self.offset + other.min_offset;
-        self.reserve(min_offset, g);
-        self.reserve((self.offset + other.max_offset() - 1).max(min_offset), g);
+        self.reserve(min_offset..=(self.offset + other.max_offset() - 1).max(min_offset));
         for (i, cell) in other.memory.drain(..).enumerate() {
-            self.memory[(min_offset - self.min_offset) as usize + i] = cell;
+            if let Some(cell) = cell {
+                self.memory[(min_offset - self.min_offset) as usize + i] = Some(cell);
+            }
         }
         self.guarded_left = self.guarded_left.min(self.offset + other.guarded_left);
         self.guarded_right = self.guarded_right.max(self.offset + other.guarded_right);
@@ -365,54 +370,55 @@ impl BasicBlock {
         self.inputs
     }
 
-    fn reserve(&mut self, offset: isize, g: &mut Graph) {
+    fn reserve(&mut self, offsets: RangeInclusive<isize>) {
+        debug_assert_eq!(self.memory.len(), self.memory_copies.len());
         if self.memory.is_empty() {
-            let copy = Byte::Copy(offset).insert(g);
-            self.memory.push_front(copy);
-            self.memory_inputs.push_front(copy);
-            self.min_offset = offset;
-        } else if offset < self.min_offset {
-            let n = (self.min_offset - offset) as usize;
-            self.memory.reserve(n);
-            self.memory_inputs.reserve(n);
-            for i in (offset..self.min_offset).rev() {
-                let copy = Byte::Copy(i).insert(g);
-                self.memory.push_front(copy);
-                self.memory_inputs.push_front(copy);
-            }
-            self.min_offset = offset;
-        } else if offset >= self.max_offset() {
-            let n = (offset - self.max_offset()) as usize + 1;
-            self.memory.reserve(n);
-            self.memory_inputs.reserve(n);
-            for i in self.max_offset()..=offset {
-                let copy = Byte::Copy(i).insert(g);
-                self.memory.push_back(copy);
-                self.memory_inputs.push_back(copy);
-            }
+            let n = (offsets.end() - offsets.start() + 1) as usize;
+            self.memory.resize(n, None);
+            self.memory_copies.resize(n, None);
+            self.min_offset = *offsets.start();
+            return;
         }
+        let min_offset = self.min_offset.min(*offsets.start());
+        let max_offset = self.max_offset().max(*offsets.end());
+        let len = (max_offset - min_offset + 1) as usize;
+        let additional = len - self.memory.len();
+        self.memory.reserve(additional);
+        self.memory_copies.reserve(additional);
+        for _ in 0..(self.min_offset - min_offset) as usize {
+            self.memory.push_front(None);
+            self.memory_copies.push_front(None);
+        }
+        self.memory.resize(len, None);
+        self.memory_copies.resize(len, None);
+        self.min_offset = min_offset;
     }
 
     fn get(&self, offset: isize) -> Option<ByteId> {
-        usize::try_from(offset - self.min_offset)
-            .ok()
-            .and_then(|i| self.memory.get(i).copied())
+        self.memory
+            .get(usize::try_from(offset - self.min_offset).ok()?)
+            .copied()
+            .flatten()
     }
 
-    fn get_mut(&mut self, offset: isize) -> Option<&mut ByteId> {
-        usize::try_from(offset - self.min_offset)
-            .ok()
-            .and_then(|i| self.memory.get_mut(i))
+    fn get_mut(&mut self, offset: isize) -> &mut Option<ByteId> {
+        self.reserve(offset..=offset);
+        &mut self.memory[(offset - self.min_offset) as usize]
     }
 
-    pub(crate) fn cell(&mut self, offset: isize, g: &mut Graph) -> ByteId {
-        self.reserve(offset, g);
-        self.memory[(offset - self.min_offset) as usize]
-    }
-
-    fn cell_mut(&mut self, g: &mut Graph) -> &mut ByteId {
-        self.reserve(self.offset, g);
-        &mut self.memory[(self.offset - self.min_offset) as usize]
+    pub(crate) fn get_or_copy(&mut self, offset: isize, g: &mut Graph) -> &mut ByteId {
+        self.reserve(offset..=offset);
+        let i = (offset - self.min_offset) as usize;
+        match &mut self.memory[i] {
+            Some(cell) => cell,
+            cell @ None => {
+                debug_assert!(self.memory_copies[i].is_none());
+                let copy = Byte::Copy(offset).insert(g);
+                *cell = Some(copy);
+                self.memory_copies[i] = Some(copy);
+                cell.as_mut().unwrap()
+            }
+        }
     }
 }
 
@@ -502,6 +508,21 @@ fn mod_inverse(value: u8) -> Option<u8> {
 #[cfg(test)]
 mod tests {
     use crate::{graph::Graph, ir::Ir, Ast};
+
+    #[test]
+    fn lazy_copies() {
+        let mut g = Graph::new();
+        Ir::lower(&Ast::parse(b">>>").unwrap(), &mut g);
+        assert_eq!(g.len(), 0, "{g:?}");
+
+        let mut g = Graph::new();
+        Ir::lower(&Ast::parse(b">>>+").unwrap(), &mut g);
+        assert_eq!(g.len(), 3, "{g:?}");
+
+        let mut g = Graph::new();
+        Ir::lower(&Ast::parse(b">>>,").unwrap(), &mut g);
+        assert_eq!(g.len(), 1, "{g:?}");
+    }
 
     #[test]
     fn concat() {
