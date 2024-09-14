@@ -269,17 +269,36 @@ impl<T: Hash> Hash for NodeRef<'_, T> {
 
 impl Debug for Graph {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "Graph ")?;
-        f.debug_map()
-            .entries(self.nodes.iter().enumerate().map(|(i, node)| {
-                let id = NodeId {
-                    index: i as u32,
-                    #[cfg(debug_assertions)]
-                    graph_id: self.graph_id,
-                };
-                (id, node)
-            }))
-            .finish()
+        fn write_node(f: &mut Formatter<'_>, i: usize, node: &Node) -> fmt::Result {
+            write!(f, "%{i} : ")?;
+            match node {
+                Node::Byte(node) => write!(f, "byte = {node:?}"),
+                Node::Array(node) => write!(f, "array = {node:?}"),
+            }
+        }
+        write!(f, "Graph {{")?;
+        if f.alternate() {
+            if !self.nodes.is_empty() {
+                write!(f, "\n")?;
+            }
+            for (i, node) in self.nodes.iter().enumerate() {
+                write!(f, "    ")?;
+                write_node(f, i, node)?;
+                write!(f, "\n")?;
+            }
+        } else {
+            for (i, node) in self.nodes.iter().enumerate() {
+                if i != 0 {
+                    write!(f, ";")?;
+                }
+                write!(f, " ")?;
+                write_node(f, i, node)?;
+            }
+            if !self.nodes.is_empty() {
+                write!(f, " ")?;
+            }
+        }
+        write!(f, "}}")
     }
 }
 
