@@ -69,7 +69,7 @@ fn closed_form_loops() {
         "
             guard_shift 1
             @0 = 0
-            @1 = @1 + @0
+            @1 = @0 + @1
         ",
     );
     test_optimize(
@@ -85,7 +85,7 @@ fn closed_form_loops() {
         "
             guard_shift 1
             @0 = 0
-            @1 = @1 + @0 * 3
+            @1 = @0 * 3 + @1
         ",
     );
     test_optimize(
@@ -94,8 +94,8 @@ fn closed_form_loops() {
             guard_shift 1
             guard_shift 2
             @0 = 0
-            @1 = @1 + @0 * -2
-            @2 = @2 + @0 * 3
+            @1 = @0 * -2 + @1
+            @2 = @0 * 3 + @2
         ",
     );
     test_optimize(
@@ -106,10 +106,10 @@ fn closed_form_loops() {
             guard_shift 3
             guard_shift 4
             @0 = 0
-            @1 = @1 + @0 * -85
-            @2 = @2 + @0 * 86
-            @3 = @3 + @0 * 85
-            @4 = @4 + @0 * -86
+            @1 = @0 * -85 + @1
+            @2 = @0 * 86 + @2
+            @3 = @0 * 85 + @3
+            @4 = @0 * -86 + @4
         ",
     );
 
@@ -118,7 +118,7 @@ fn closed_form_loops() {
         "
             guard_shift 1
             @0 = 0
-            @1 = @1 + @0
+            @1 = @0 + @1
         ",
     );
 }
@@ -175,6 +175,19 @@ fn sub_eq() {
             shift 1
         ",
     );
+    // -x + x => 0
+    test_optimize(
+        ",[->+>-<<]>[->+<]",
+        "
+            in0 = input
+            guard_shift 1
+            guard_shift 2
+            @0 = 0
+            @1 = 0
+            @2 = @1 + @2
+            shift 1
+        ",
+    );
 }
 
 #[test]
@@ -203,7 +216,7 @@ fn missed_optimizations() {
             if @0 != 0 {
                 guard_shift 1
                 @0 = 0
-                @1 = @1 + @0
+                @1 = @0 + @1
             }
         ",
     );
@@ -224,20 +237,7 @@ fn missed_optimizations() {
             guard_shift 2
             @0 = 0
             @1 = 0
-            @2 = @2 + in0 + (@1 + in0) * -1
-            shift 1
-        ",
-    );
-    // -x + x => 0
-    test_optimize(
-        ",[->+>-<<]>[->+<]",
-        "
-            in0 = input
-            guard_shift 1
-            guard_shift 2
-            @0 = 0
-            @1 = 0
-            @2 = @2 + in0 * -1 + @1 + in0
+            @2 = (@1 + in0) * -1 + @2 + in0
             shift 1
         ",
     );
@@ -311,9 +311,9 @@ fn missed_optimizations() {
                 guard_shift 6
                 @0 = @0 - 1
                 @1 = 0
-                @2 = @2 + (@1 + 4) * 2 + 1
-                @3 = @3 + (@1 + 4) * 3 + 1
-                @4 = @4 + (@1 + 4) * 3 - 1
+                @2 = (@1 + 4) * 2 + @2 + 1
+                @3 = (@1 + 4) * 3 + @3 + 1
+                @4 = (@1 + 4) * 3 + @4 - 1
                 @5 = @1 + @5 + 4
                 @6 = @6 + 1
             }
@@ -350,9 +350,9 @@ fn missed_optimizations() {
                     guard_shift 5
                     guard_shift 6
                     @1 = 0
-                    @2 = @2 + (@1 + 4) * 2 + 1
-                    @3 = @3 + (@1 + 4) * 3 + 1
-                    @4 = @4 + (@1 + 4) * 3 - 1
+                    @2 = (@1 + 4) * 2 + @2 + 1
+                    @3 = (@1 + 4) * 3 + @3 + 1
+                    @4 = (@1 + 4) * 3 + @4 - 1
                     @5 = @1 + @5 + 4
                     @6 = @6 + 1
                     shift 6

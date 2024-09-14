@@ -1,9 +1,12 @@
-use std::mem;
+use std::{cmp::Ordering, collections::BTreeSet, isize, mem, usize};
 
 use crate::{
     graph::{ArrayId, ByteId, Graph, NodeId, NodeRef},
     ir::BasicBlock,
 };
+
+// TODO:
+// - Reuse scratch sets for ordering Byte.
 
 /// A node in a graph.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -52,7 +55,7 @@ impl Byte {
                 };
                 let (res, idealize) = match (&g[head], &g[rhs]) {
                     (&Byte::Const(a), &Byte::Const(b)) => {
-                        (Byte::Const(a.wrapping_add(b)).insert(g), false)
+                        (Byte::Const(a.wrapping_add(b)).insert(g), true)
                     }
                     (_, Byte::Const(0)) => (head, false),
                     (Byte::Const(0), _) => (rhs, true),
@@ -66,11 +69,20 @@ impl Byte {
                     _ if head == rhs => {
                         (Byte::Mul(head, Byte::Const(2).insert(g)).idealize(g), true)
                     }
-                    (&Byte::Mul(a, b), _) if a == rhs && matches!(g[b], Byte::Const(255)) => {
-                        (Byte::Const(0).insert(g), false)
+                    (&Byte::Mul(a, b), _) if a == rhs => {
+                        let n = Byte::Add(b, Byte::Const(1).insert(g)).idealize(g);
+                        (Byte::Mul(a, n).idealize(g), true)
                     }
-                    (_, &Byte::Mul(b, c)) if b == head && matches!(g[c], Byte::Const(255)) => {
-                        (Byte::Const(0).insert(g), false)
+                    (_, &Byte::Mul(b, c)) if b == head => {
+                        let n = Byte::Add(c, Byte::Const(1).insert(g)).idealize(g);
+                        (Byte::Mul(b, n).idealize(g), true)
+                    }
+                    _ if head.get(g).cmp_by_variable_order(rhs.get(g)).is_gt() => {
+                        if let Some(tail) = tail {
+                            return Byte::Add(Byte::Add(tail, rhs).idealize(g), head).idealize(g);
+                        } else {
+                            return Byte::Add(rhs, head).insert(g);
+                        }
                     }
                     _ => return Byte::Add(lhs, rhs).insert(g),
                 };
@@ -99,12 +111,19 @@ impl Byte {
                 };
                 let (res, idealize) = match (&g[head], &g[rhs]) {
                     (&Byte::Const(a), &Byte::Const(b)) => {
-                        (Byte::Const(a.wrapping_mul(b)).insert(g), false)
+                        (Byte::Const(a.wrapping_mul(b)).insert(g), true)
                     }
                     (_, Byte::Const(1)) => (head, false),
                     (Byte::Const(1), _) => (rhs, true),
                     (_, Byte::Const(0)) | (Byte::Const(0), _) => return Byte::Const(0).insert(g),
                     (Byte::Const(_), _) => {
+                        if let Some(tail) = tail {
+                            return Byte::Mul(Byte::Mul(tail, rhs).idealize(g), head).idealize(g);
+                        } else {
+                            return Byte::Mul(rhs, head).insert(g);
+                        }
+                    }
+                    _ if head.get(g).cmp_by_variable_order(rhs.get(g)).is_gt() => {
                         if let Some(tail) = tail {
                             return Byte::Mul(Byte::Mul(tail, rhs).idealize(g), head).idealize(g);
                         } else {
@@ -144,6 +163,112 @@ impl NodeRef<'_, ByteId> {
             Byte::Add(lhs, rhs) | Byte::Mul(lhs, rhs) => {
                 lhs.get(self.graph()).references_other(offset)
                     || rhs.get(self.graph()).references_other(offset)
+            }
+        }
+    }
+
+    /// Orders two `Byte` nodes by variable ordering, i.e., the contained `Copy`
+    /// offsets and `Input` IDs.
+    pub fn cmp_by_variable_order(&self, other: Self) -> Ordering {
+        match (self.node(), other.node()) {
+            (Byte::Const(a), Byte::Const(b)) => a.cmp(b),
+            (_, Byte::Const(_)) => Ordering::Less,
+            (Byte::Const(_), _) => Ordering::Greater,
+            (Byte::Copy(a), Byte::Copy(b)) => a.cmp(b),
+            (Byte::Input { id: a }, Byte::Input { id: b }) => a.cmp(b),
+            (Byte::Copy(_), Byte::Input { .. }) => Ordering::Less,
+            (Byte::Input { .. }, Byte::Copy(_)) => Ordering::Greater,
+            _ => {
+                // The general case. First, try a scan which tracks only the
+                // minimums to avoid most allocations.
+                let (min_offset1, min_input1) = self.min_terms();
+                let (min_offset2, min_input2) = other.min_terms();
+                if min_offset1 != min_offset2 {
+                    return min_offset1.cmp(&min_offset2);
+                }
+                // TODO: Reuse these scratch sets.
+                let mut offsets1 = BTreeSet::new();
+                let mut offsets2 = BTreeSet::new();
+                self.offsets(&mut offsets1);
+                other.offsets(&mut offsets2);
+                for (offset1, offset2) in offsets1.iter().zip(offsets2.iter()) {
+                    if offset1 != offset2 {
+                        return offset1.cmp(offset2);
+                    }
+                }
+                if offsets1.len() != offsets2.len() {
+                    return offsets1.len().cmp(&offsets2.len()).reverse();
+                }
+                if min_input1 != min_input2 {
+                    return min_input1.cmp(&min_input2);
+                }
+                let mut inputs1 = BTreeSet::new();
+                let mut inputs2 = BTreeSet::new();
+                self.inputs(&mut inputs1);
+                other.inputs(&mut inputs2);
+                for (input1, input2) in inputs1.iter().zip(inputs2.iter()) {
+                    if input1 != input2 {
+                        return input1.cmp(input2);
+                    }
+                }
+                inputs1.len().cmp(&inputs2.len()).reverse()
+            }
+        }
+    }
+
+    /// Computes the least offset for a `Copy` and the least ID for an `Input`
+    /// in this expression, or the maximum integer value if none is found.
+    fn min_terms(&self) -> (isize, usize) {
+        let mut min_offset = isize::MAX;
+        let mut min_input = usize::MAX;
+        self.min_terms_(&mut min_offset, &mut min_input);
+        (min_offset, min_input)
+    }
+
+    fn min_terms_(&self, min_offset: &mut isize, min_input: &mut usize) {
+        match *self.node() {
+            Byte::Copy(offset) => {
+                debug_assert!(offset != isize::MAX);
+                *min_offset = offset.min(*min_offset);
+            }
+            Byte::Const(_) => {}
+            Byte::Input { id } => {
+                debug_assert!(id != usize::MAX);
+                *min_input = id.min(*min_input);
+            }
+            Byte::Add(lhs, rhs) => {
+                self.graph().get(lhs).min_terms_(min_offset, min_input);
+                self.graph().get(rhs).min_terms_(min_offset, min_input);
+            }
+            Byte::Mul(lhs, rhs) => {
+                self.graph().get(lhs).min_terms_(min_offset, min_input);
+                self.graph().get(rhs).min_terms_(min_offset, min_input);
+            }
+        }
+    }
+
+    fn offsets(&self, offsets: &mut BTreeSet<isize>) {
+        match *self.node() {
+            Byte::Copy(offset) => {
+                offsets.insert(offset);
+            }
+            Byte::Const(_) | Byte::Input { .. } => {}
+            Byte::Add(lhs, rhs) | Byte::Mul(lhs, rhs) => {
+                self.graph().get(lhs).offsets(offsets);
+                self.graph().get(rhs).offsets(offsets);
+            }
+        }
+    }
+
+    fn inputs(&self, inputs: &mut BTreeSet<usize>) {
+        match *self.node() {
+            Byte::Copy(_) | Byte::Const(_) => {}
+            Byte::Input { id } => {
+                inputs.insert(id);
+            }
+            Byte::Add(lhs, rhs) | Byte::Mul(lhs, rhs) => {
+                self.graph().get(lhs).inputs(inputs);
+                self.graph().get(rhs).inputs(inputs);
             }
         }
     }
