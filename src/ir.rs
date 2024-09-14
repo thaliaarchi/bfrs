@@ -75,23 +75,43 @@ pub enum Effect {
     GuardShift(isize),
 }
 
+/// A builder for a basic block.
+#[derive(Debug)]
+struct BasicBlockBuilder<'a> {
+    g: &'a mut Graph,
+    memory: &'a mut VecDeque<(Option<ByteId>, u8)>,
+    effects: Vec<Effect>,
+    min_offset: isize,
+    offset: isize,
+    guarded_left: isize,
+    guarded_right: isize,
+    inputs: usize,
+}
+
 impl Ir {
-    pub fn lower(ast: &[Ast], g: &mut Graph) -> Vec<Self> {
+    pub fn lower(mut ast: &[Ast], g: &mut Graph) -> Vec<Self> {
+        let mut memory = VecDeque::new();
         let mut ir = vec![];
-        for inst in ast {
+        while let Some((inst, rest)) = ast.split_first() {
             if let Ast::Loop(body) = inst {
                 ir.push(Ir::Loop {
                     condition: Condition::WhileNonZero,
                     body: Ir::lower(body, g),
                 });
+                ast = rest;
             } else {
-                if !matches!(ir.last(), Some(Ir::BasicBlock { .. })) {
-                    ir.push(Ir::BasicBlock(BasicBlock::new()));
+                let i = ast
+                    .iter()
+                    .position(|inst| matches!(inst, Ast::Loop(_)))
+                    .unwrap_or(ast.len());
+                let (linear_insts, rest) = ast.split_at(i);
+                memory.clear();
+                let mut b = BasicBlockBuilder::new(g, &mut memory);
+                for inst in linear_insts {
+                    b.apply(inst);
                 }
-                let Some(Ir::BasicBlock(bb)) = ir.last_mut() else {
-                    unreachable!();
-                };
-                bb.apply(inst, g);
+                ir.push(Ir::BasicBlock(b.finish()));
+                ast = rest;
             }
         }
         ir
@@ -219,12 +239,11 @@ impl Ir {
     }
 }
 
-impl BasicBlock {
-    /// Constructs a basic block with no effects.
-    pub fn new() -> Self {
-        BasicBlock {
-            memory: VecDeque::new(),
-            memory_copies: VecDeque::new(),
+impl<'a> BasicBlockBuilder<'a> {
+    fn new(g: &'a mut Graph, memory: &'a mut VecDeque<(Option<ByteId>, u8)>) -> Self {
+        BasicBlockBuilder {
+            g,
+            memory,
             effects: Vec::new(),
             min_offset: 0,
             offset: 0,
@@ -235,8 +254,8 @@ impl BasicBlock {
     }
 
     /// Applies an operation to the basic block.
-    pub fn apply(&mut self, op: &Ast, g: &mut Graph) {
-        match op {
+    fn apply(&mut self, inst: &Ast) {
+        match inst {
             Ast::Right => {
                 self.offset += 1;
                 if self.offset > self.guarded_right {
@@ -252,17 +271,22 @@ impl BasicBlock {
                 }
             }
             Ast::Inc | Ast::Dec => {
-                let n = if op == &Ast::Inc { 1 } else { 255 };
-                let cell = self.get_or_copy(self.offset, g);
-                *cell = Byte::Add(*cell, Byte::Const(n).insert(g)).idealize(g)
+                let (_, addend) = self.get_cell();
+                *addend = addend.wrapping_add(if inst == &Ast::Inc { 1 } else { 255 });
             }
             Ast::Output => {
-                let value = *self.get_or_copy(self.offset, g);
+                let (base, addend) = *self.get_cell();
+                let base = base.unwrap_or_else(|| Byte::Copy(self.offset).insert(self.g));
+                let value = if addend != 0 {
+                    Byte::Add(base, Byte::Const(addend).insert(self.g)).insert(self.g)
+                } else {
+                    base
+                };
                 self.effects.push(Effect::Output(value.as_node_id()));
             }
             Ast::Input => {
-                let input = Byte::Input { id: self.inputs }.insert(g);
-                *self.get_mut(self.offset) = Some(input);
+                let input = Byte::Input { id: self.inputs }.insert(self.g);
+                *self.get_cell() = (Some(input), 0);
                 self.effects.push(Effect::Input(input));
                 self.inputs += 1;
             }
@@ -270,6 +294,59 @@ impl BasicBlock {
         }
     }
 
+    fn get_cell(&mut self) -> &mut (Option<ByteId>, u8) {
+        if self.memory.is_empty() {
+            self.memory.push_back((None, 0));
+            self.min_offset = self.offset;
+        } else if self.offset < self.min_offset {
+            for _ in 0..(self.min_offset - self.offset) {
+                self.memory.push_front((None, 0));
+            }
+            self.min_offset = self.offset;
+        } else if self.offset >= self.min_offset + self.memory.len() as isize {
+            self.memory
+                .resize((self.offset - self.min_offset + 1) as usize, (None, 0));
+        }
+        &mut self.memory[(self.offset - self.min_offset) as usize]
+    }
+
+    fn finish(self) -> BasicBlock {
+        let g = self.g;
+        let mut memory = VecDeque::with_capacity(self.memory.len());
+        let mut memory_copies = VecDeque::with_capacity(self.memory.len());
+        for (&(base, addend), offset) in self.memory.iter().zip(self.min_offset..) {
+            let (base, copy) = match base {
+                Some(base) => (Some(base), None),
+                None if addend != 0 => {
+                    let copy = Byte::Copy(offset).insert(g);
+                    (Some(copy), Some(copy))
+                }
+                None => (None, None),
+            };
+            let value = base.map(|base| {
+                if addend != 0 {
+                    Byte::Add(base, Byte::Const(addend).insert(g)).insert(g)
+                } else {
+                    base
+                }
+            });
+            memory.push_back(value);
+            memory_copies.push_back(copy);
+        }
+        BasicBlock {
+            memory,
+            memory_copies,
+            effects: self.effects,
+            min_offset: self.min_offset,
+            offset: self.offset,
+            guarded_left: self.guarded_left,
+            guarded_right: self.guarded_right,
+            inputs: self.inputs,
+        }
+    }
+}
+
+impl BasicBlock {
     /// Concatenates two basic blocks. Applies the operations of `other` to
     /// `self`, draining `other`.
     pub fn concat(&mut self, other: &mut Self, g: &mut Graph) {
@@ -509,19 +586,20 @@ fn mod_inverse(value: u8) -> Option<u8> {
 mod tests {
     use crate::{graph::Graph, ir::Ir, Ast};
 
+    fn assert_node_count(src: &str, nodes: usize) {
+        let mut g = Graph::new();
+        Ir::lower(&Ast::parse(src.as_bytes()).unwrap(), &mut g);
+        assert_eq!(g.len(), nodes, "{src:?} => {g:?}");
+    }
+
     #[test]
-    fn lazy_copies() {
-        let mut g = Graph::new();
-        Ir::lower(&Ast::parse(b">>>").unwrap(), &mut g);
-        assert_eq!(g.len(), 0, "{g:?}");
-
-        let mut g = Graph::new();
-        Ir::lower(&Ast::parse(b">>>+").unwrap(), &mut g);
-        assert_eq!(g.len(), 3, "{g:?}");
-
-        let mut g = Graph::new();
-        Ir::lower(&Ast::parse(b">>>,").unwrap(), &mut g);
-        assert_eq!(g.len(), 1, "{g:?}");
+    fn lazy_node_construction() {
+        assert_node_count(">>>", 0);
+        assert_node_count(">>>+", 3);
+        assert_node_count(">>>-", 3);
+        assert_node_count(">>>,", 1);
+        assert_node_count(">>>.", 1);
+        assert_node_count(">+<>++++-><-+-+>><<-+-+++", 3);
     }
 
     #[test]
