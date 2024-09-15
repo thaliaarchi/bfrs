@@ -92,5 +92,13 @@ do not have a corresponding .b file.
   bool/or1.b by [Sunjay Varma](https://esolangs.org/wiki/User:Sunjay),
   bool/or2.b by [Yuval Meshorer](https://esolangs.org/wiki/User:YuvalM),
   bool/or{3,4}.b
+- [x´ = x nor y (boolean, logical)](https://esolangs.org/wiki/Brainfuck_algorithms#x%C2%B4_=_x_nor_y_(boolean,_logical)):
+  bool/nor_assign.b by [FSHelix](https://esolangs.org/wiki/User:FSHelix)
+- [z = x xor y (boolean, logical)](https://esolangs.org/wiki/Brainfuck_algorithms#z_=_x_xor_y_(boolean,_logical)):
+  bool/xor.b by [Yuval Meshorer](https://esolangs.org/wiki/User:YuvalM)
+- [z = x xnor y (boolean, logical)](https://esolangs.org/wiki/Brainfuck_algorithms#z_=_x_xnor_y_(boolean,_logical)):
+  bool/xnor.b by [FSHelix](https://esolangs.org/wiki/User:FSHelix)
+- [z = MUX(a, x, y) (boolean, logical)](https://esolangs.org/wiki/Brainfuck_algorithms#z_=_MUX(a,_x,_y)_(boolean,_logical)):
+  bool/mux.b by [Yuval Meshorer](https://esolangs.org/wiki/User:YuvalM)
 
 License: [CC0 1.0 Universal Public Domain Dedication](https://esolangs.org/wiki/Esolang:Copyrights)

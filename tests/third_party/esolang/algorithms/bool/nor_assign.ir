@@ -1,0 +1,19 @@
+{
+    guard_shift 1
+    shift 1
+}
+if @0 != 0 {
+    guard_shift 1
+    @0 = 0
+    @1 = @1 + 1
+}
+{
+    guard_shift 1
+    shift 1
+}
+if @0 != 0 {
+    guard_shift -1
+    guard_shift -2
+    @-2 = @-2 + 1
+    @0 = 0
+}
