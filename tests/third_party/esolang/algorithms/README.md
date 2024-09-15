@@ -1,7 +1,7 @@
 # Brainfuck algorithms on the Esolang wiki
 
 The programs on the [Brainfuck algorithms](https://esolangs.org/wiki/Brainfuck_algorithms)
-page. These programs are current as of revision [2024-09-15 03:08:43](https://esolangs.org/w/index.php?title=Brainfuck_algorithms&oldid=139320)
+page. These programs are current as of revision [2024-09-15 04:33:59](https://esolangs.org/w/index.php?title=Brainfuck_algorithms&oldid=139329)
 and authors are credited when attributed in the text.
 
 In programs that use placeholders for shifts or constants, I have inserted
@@ -56,5 +56,19 @@ do not have a corresponding .b file.
   array/write_array_1-cell.b by [Tritonio](https://esolangs.org/wiki/User:Tritonio)
 - [x = y(z) (1-d array) (1 cell/array element)](https://esolangs.org/wiki/Brainfuck_algorithms#x_=_y(z)_(1-d_array)_(1_cell/array_element)):
   array/read_array_1-cell.b by [Tritonio](https://esolangs.org/wiki/User:Tritonio)
+- [x´ = x == y](https://esolangs.org/wiki/Brainfuck_algorithms#x%C2%B4_=_x_==_y):
+  compare/eq1_assign.b by [Jeffry Johnston](https://esolangs.org/wiki/User:Calamari),
+  compare/eq2_assign.b
+- [x´ = x != y](https://esolangs.org/wiki/Brainfuck_algorithms#x%C2%B4_=_x_!=_y):
+  compare/ne1_assign.b by [Jeffry Johnston](https://esolangs.org/wiki/User:Calamari),
+  compare/ne2_assign.b by [Yuval Meshorer](https://esolangs.org/wiki/User:YuvalM)
+- [x´ = x < y](https://esolangs.org/wiki/Brainfuck_algorithms#x%C2%B4_=_x_%3C_y):
+  compare/lt_assign.b by Ian Kelly
+- [x´ = x <= y](https://esolangs.org/wiki/Brainfuck_algorithms#x%C2%B4_=_x_%3C=_y):
+  compare/le_assign.b by Ian Kelly
+- [z = x > y](https://esolangs.org/wiki/Brainfuck_algorithms#z_=_x_%3E_y):
+  compare/gt.b by [ais523](https://esolangs.org/wiki/User:Ais523)
+- [z = sign(x-y)](https://esolangs.org/wiki/Brainfuck_algorithms#z_=_sign(x-y)):
+  compare/cmp_nowrap.b by [quintopia](https://esolangs.org/wiki/User:Quintopia)
 
 License: [CC0 1.0 Universal Public Domain Dedication](https://esolangs.org/wiki/Esolang:Copyrights)

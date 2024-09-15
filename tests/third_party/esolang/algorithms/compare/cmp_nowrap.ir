@@ -1,0 +1,67 @@
+{
+    guard_shift 1
+    guard_shift 2
+    guard_shift 3
+    guard_shift 4
+    guard_shift 5
+    guard_shift 6
+    @1 = 0
+    @2 = 0
+    @3 = @3 + 1
+    @5 = @1 + @2 * -1 + @5
+    @6 = @1 * -1 + @2 + @6
+    shift 5
+}
+while @0 != 0 {
+    {
+        guard_shift 1
+        @0 = @0 - 1
+        @1 = @1 - 1
+        shift 1
+    }
+    while @0 != 0 {
+        guard_shift 1
+        shift 1
+    }
+    {
+        guard_shift -1
+        guard_shift -2
+        shift -2
+    }
+}
+{
+    guard_shift -1
+    shift -1
+}
+while @0 != 0 {
+    {
+        guard_shift 1
+        guard_shift 2
+        @0 = @0 - 1
+        shift 2
+    }
+    if @0 != 0 {
+        guard_shift -1
+        guard_shift -2
+        @-2 = @-2 + 1
+        @0 = 0
+    }
+    {
+        guard_shift -1
+        shift -1
+    }
+}
+{
+    guard_shift 1
+    guard_shift 2
+    shift 2
+}
+if @0 != 0 {
+    @0 = 0
+}
+{
+    guard_shift -1
+    guard_shift -2
+    guard_shift -3
+    shift -3
+}

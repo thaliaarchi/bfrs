@@ -1,0 +1,35 @@
+[z = sign(x-y) (non-wrapping)
+
+Attribution: quintopia <https://esolangs.org/wiki/User:Quintopia>
+
+This is a comparison of two numbers for non-wrapping implementations. The signs
+of the two numbers must be known. Part of it can also be used to find the sign
+of an unknown number if both it and its opposite are available. z and the four
+cells to its right must be free and clear (and will be again when the algorithm
+terminates), an assumption that must be made in a non-wrapping implementation,
+as the direction to clear these cells could not be known to this algorithm. The
+code blocks indicated by parenthetical comments could contain code which depends
+on the result of the comparison; there is no particular reason in practice to
+wait for the value of z to be set to one of {-1,0,1}.
+
+Put an {if 0, then do} algorithm at the end to run code conditional on y=x.
+
+†The polarity of these lines should be reversed if x and y are negative.]
+
+x[z>>+>-x-]†
+y[z>>->+y-]†
+z+>>
+[->-[>]<<]
+<[
+  (y>=x)
+  -
+  >>[
+    (y>x)
+    <<+>>[+]
+  ]<
+]
+>>[
+  (x>y)
+  [+]
+]
+<<<
