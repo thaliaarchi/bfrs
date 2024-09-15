@@ -1,0 +1,11 @@
+[Read until any of multiple chars]
+
++>[
+  >,
+  (----------n1)[(++++++++++n1)[>+<-]]>[<+>-]<
+  (-------------n2)[(+++++++++++++n2)[>+<-]]>[<+>-]<
+  etc
+]
+
+[(+/-n1) means repeat that operator n1 times. n1, n2 etc are the char codes you
+want to match. One line for each.]

@@ -1,0 +1,6 @@
+[x = y]
+
+temp0[-]
+x[-]
+y[x+temp0+y-]
+temp0[y+temp0-]

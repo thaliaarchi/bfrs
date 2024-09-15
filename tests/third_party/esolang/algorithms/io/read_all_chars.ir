@@ -1,0 +1,10 @@
+{
+    in0 = input
+    @0 = in0
+}
+while @0 != 0 {
+    guard_shift 1
+    in0 = input
+    @1 = in0
+    shift 1
+}
