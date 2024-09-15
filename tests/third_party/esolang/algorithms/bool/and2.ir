@@ -3,7 +3,7 @@
     guard_shift 2
     @2 = 0
 }
-while @0 != 0 {
+repeat @0 times {
     guard_shift 1
     guard_shift 2
     @0 = @0 - 1

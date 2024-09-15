@@ -16,7 +16,7 @@ while @0 != 0 {
         @3 = @-1
         shift 3
     }
-    while @0 != 0 {
+    repeat @0 times {
         guard_shift -1
         guard_shift -2
         guard_shift -3

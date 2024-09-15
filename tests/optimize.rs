@@ -247,37 +247,20 @@ fn missed_optimizations() {
             [>[-]++++[>++>+++>+++>+<<<<-]>+>+>->>+<<<<<<-]
         ",
         "
-            {
-                in0 = input
-                guard_shift 1
-                guard_shift 2
-                guard_shift 3
-                guard_shift 4
-                guard_shift 5
-                guard_shift 6
-                @0 = in0
-                @1 = 0
-                @2 = 0
-                @3 = 0
-                @4 = 0
-                @5 = 0
-                @6 = 0
-            }
-            while @0 != 0 {
-                guard_shift 1
-                guard_shift 2
-                guard_shift 3
-                guard_shift 4
-                guard_shift 5
-                guard_shift 6
-                @0 = @0 - 1
-                @1 = 0
-                @2 = @2 + 9
-                @3 = @3 + 13
-                @4 = @4 + 11
-                @5 = @5 + 4
-                @6 = @6 + 1
-            }
+            in0 = input
+            guard_shift 1
+            guard_shift 2
+            guard_shift 3
+            guard_shift 4
+            guard_shift 5
+            guard_shift 6
+            @0 = 0
+            @1 = 0
+            @2 = in0 * 9
+            @3 = in0 * 13
+            @4 = in0 * 11
+            @5 = in0 * 4
+            @6 = in0
         ",
     );
     test_optimize(
@@ -302,7 +285,7 @@ fn missed_optimizations() {
                 @5 = 0
                 @6 = 0
             }
-            while @0 != 0 {
+            repeat @0 times {
                 guard_shift 1
                 guard_shift 2
                 guard_shift 3

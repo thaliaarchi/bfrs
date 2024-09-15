@@ -157,6 +157,7 @@ impl Ir {
         if let Ir::BasicBlock(bb) = self {
             bb.combine_outputs(g);
         } else if let Ir::Loop { condition, body } = self {
+            Ir::optimize_blocks(body, g);
             if let [Ir::BasicBlock(bb)] = body.as_mut_slice() {
                 if bb.offset == 0 {
                     if let Some(current) = bb.get(0) {
@@ -205,7 +206,6 @@ impl Ir {
                     }
                 }
             }
-            Ir::optimize_blocks(body, g);
             let mut guaranteed_zero = false;
             let mut offset = 0;
             for block in body.iter().rev() {
