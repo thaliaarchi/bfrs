@@ -1,0 +1,9 @@
+while @0 != 0 {
+    in0 = input
+    output in0
+    in1 = input
+    output in1
+    guard_shift 1
+    @0 = in1
+    shift 1
+}

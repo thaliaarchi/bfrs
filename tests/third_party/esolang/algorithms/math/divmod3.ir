@@ -1,0 +1,43 @@
+{
+    guard_shift 1
+    shift 1
+}
+while @0 != 0 {
+    guard_shift 1
+    guard_shift 2
+    guard_shift 3
+    shift 3
+}
+{
+    guard_shift 1
+    shift 1
+}
+while @0 != 0 {
+    guard_shift -1
+    guard_shift 1
+    guard_shift 2
+    guard_shift 3
+    @-1 = @-1 + @0
+    @0 = 0
+    @1 = @1 + 1
+    shift 3
+}
+{
+    guard_shift -1
+    guard_shift -2
+    guard_shift -3
+    guard_shift -4
+    guard_shift -5
+    shift -5
+}
+while @0 != 0 {
+    guard_shift 1
+    guard_shift 2
+    in0 = input
+    output in0
+    in1 = input
+    output in1
+    @1 = @1 - 1
+    @2 = in1
+    shift 2
+}

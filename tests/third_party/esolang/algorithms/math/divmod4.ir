@@ -1,0 +1,68 @@
+{
+    guard_shift 1
+    guard_shift 2
+    guard_shift 3
+    @1 = @1 + 1
+    @3 = @3 + 1
+}
+while @0 != 0 {
+    while @0 != 0 {
+        {
+            guard_shift 1
+            guard_shift 2
+            guard_shift 3
+            guard_shift 4
+            guard_shift 5
+            guard_shift 6
+            @0 = @0 - 1
+            @1 = @1 - 1
+            @2 = @2 - 1
+            @6 = @6 + 1
+            shift 2
+        }
+        while @0 != 0 {
+            guard_shift 1
+            @1 = @1 - 1
+            shift 1
+        }
+        {
+            guard_shift 1
+            shift 1
+        }
+        while @0 != 0 {
+            guard_shift 1
+            guard_shift 2
+            guard_shift 3
+            guard_shift -1
+            @-1 = @-1 + @3
+            @2 = @2 + 1
+            @3 = 0
+            shift 1
+        }
+        {
+            guard_shift -1
+            guard_shift -2
+            guard_shift -3
+            @-1 = 1
+            shift -3
+        }
+    }
+    {
+        guard_shift 1
+        guard_shift 2
+        guard_shift 3
+        shift 3
+    }
+    while @0 != 0 {
+        guard_shift 1
+        shift 1
+    }
+    {
+        guard_shift -1
+        guard_shift -2
+        guard_shift -3
+        guard_shift -4
+        @-3 = 1
+        shift -4
+    }
+}
