@@ -1,0 +1,17 @@
+[x = y(z) (1-d array) (2 cells/array element)
+
+Attribution: Jeffry Johnston <https://esolangs.org/wiki/User:Calamari>
+
+The cells representing y, temp0, and temp1 must be contiguous, with x being the
+leftmost cell and temp1 the rightmost, followed by adequate memory for the
+array. Each array element requires 2 memory cells. The pointer ends at y.
+
+Layout: x z y temp0 temp1 ...]
+
+x[-]
+temp0>>>[-]
+temp1>[-]
+z<<<[temp1>>>+temp0<+z<<-]temp0>>[z<<+temp0>>-]
+y< >>[[>>]+[<<]>>-]+[>>]<[<[<<]>+< (pointer is at y)
+ x<<+
+y>> >>[>>]<-]<[<<]>[>[>>]<+<[<<]>-]>[>>]<<[-<<]

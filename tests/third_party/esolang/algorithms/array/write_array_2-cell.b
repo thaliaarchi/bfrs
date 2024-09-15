@@ -1,0 +1,31 @@
+[x(y) = z (1-d array) (2 cells/array element)
+
+Attribution: Jeffry Johnston <https://esolangs.org/wiki/User:Calamari>
+
+The cells representing x, temp0, and temp1 must be contiguous, with x being the
+leftmost cell and temp1 the rightmost, followed by adequate memory for the
+array. Each array element requires 2 memory cells. The pointer ends at x.
+
+Layout: temp2 z y x temp0 temp1 ...]
+
+temp0>>>>[-]
+temp1>[-]
+temp2<<<<<[-]
+y>>[temp1>>>+temp2<<<<<+y>>-]temp2<<[y>>+temp2<<-]
+z>[temp0>>>+temp2<<<<+z>-]temp2<[z>+temp2<-]
+x>>> >>[[>>]+[<<]>>-]+
+ [>>]<[-]<[<<]
+ >[>[>>]<+<[<<]>-]
+ >[>>]<<[-<<]
+
+[The code up through "[… -]+" creates a trail of 1's that the later loops will
+use to find the destination cell. The cells are grouped as "data cell, 1-cell".
+The destination cell is "data cell, 0-cell", so that the "[>>]" stops in a
+useful place. The x cell is always 0, and serves as the left-side stop for the
+"[<<]" statements (notice that t1 is cleared by the first loop, but the loop's
+trailing "+" converts it to the first 1-cell in the trail). Next, the trail is
+followed and "[-]" clears the destination cell. The array is now prepared, so an
+add-to loop of the form "temp0[dest+temp0-]" moves the value in temp0 to the
+destination cell. Finally, with ">[>>]" the trail of 1's is followed one last
+time forward, and cleared on the way back, ending at the left stop, x.
+Contiguous memory required for the array is 3 + 2 * number of array elements.]
