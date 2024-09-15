@@ -1,0 +1,26 @@
+{
+    guard_shift 1
+    guard_shift 2
+    @1 = 1
+    @2 = 0
+}
+if @0 != 0 {
+    output @0
+    guard_shift 1
+    guard_shift 2
+    @0 = 0
+    @1 = @1 - 1
+    @2 = @0 + @2
+}
+{
+    guard_shift 1
+    guard_shift 2
+    @0 = @0 + @2
+    @2 = 0
+    shift 1
+}
+repeat @0 times {
+    guard_shift -1
+    output @-1
+    @0 = @0 - 1
+}

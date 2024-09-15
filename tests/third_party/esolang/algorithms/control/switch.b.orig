@@ -1,0 +1,29 @@
+[switch (x) {case 1: code1, case 2: code 2}
+
+The way it works is: subtract the case values from the given x and check the
+flag. If the flag is still there, then run the case code. If it's empty (at
+least one case code ran), then do nothing.
+
+Clears both x and flag]
+
+flag[-]+
+x
+[ case 1
+ ------
+ [ case 2
+  -----
+  [default case]
+  flag
+  [case 1:
+   [-] empty the flag
+   code1
+  ]
+  x
+ ]
+ flag
+  [case 2:
+   [-] empty the flag
+   code2
+  ]
+  x
+]

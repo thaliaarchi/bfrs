@@ -1,0 +1,8 @@
+[if (x) { code }]
+
+If you don't need x anymore:
+
+x[
+ code
+ x[-]
+]

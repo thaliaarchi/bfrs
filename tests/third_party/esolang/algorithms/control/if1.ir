@@ -1,0 +1,13 @@
+{
+    guard_shift 1
+    guard_shift 2
+    @1 = 0
+    @2 = @0
+    shift 2
+}
+if @0 != 0 {
+    guard_shift -1
+    guard_shift -2
+    output @-2
+    @0 = 0
+}

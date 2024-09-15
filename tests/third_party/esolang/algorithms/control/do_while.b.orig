@@ -1,0 +1,12 @@
+[do { code } while (x)
+
+Attribution: None1 <https://esolangs.org/wiki/User:None1>
+
+The program needs one temporary byte and clears it and the pointer stops at x, x
+is evaluated once per loop]
+
+temp[-]+[
+    code
+    evaluate x
+ x
+]temp-

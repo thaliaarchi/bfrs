@@ -1,7 +1,7 @@
 # Brainfuck algorithms on the Esolang wiki
 
 The programs on the [Brainfuck algorithms](https://esolangs.org/wiki/Brainfuck_algorithms)
-page. These programs are current as of revision [2024-09-15 07:26:21](https://esolangs.org/w/index.php?title=Brainfuck_algorithms&oldid=139356)
+page. These programs are current as of revision [2024-09-15 11:00:24](https://esolangs.org/w/index.php?title=Brainfuck_algorithms&oldid=139406)
 and authors are credited when attributed in the text.
 
 In programs that use placeholders for shifts or constants, I have inserted
@@ -100,5 +100,20 @@ do not have a corresponding .b file.
   bool/xnor.b by [FSHelix](https://esolangs.org/wiki/User:FSHelix)
 - [z = MUX(a, x, y) (boolean, logical)](https://esolangs.org/wiki/Brainfuck_algorithms#z_=_MUX(a,_x,_y)_(boolean,_logical)):
   bool/mux.b by [Yuval Meshorer](https://esolangs.org/wiki/User:YuvalM)
+- [while (x) { code }](https://esolangs.org/wiki/Brainfuck_algorithms#while_(x)_{_code_}):
+  control/while1.b.orig by [Sunjay Varma](https://esolangs.org/wiki/User:Sunjay),
+  control/while2.b.orig by [Morgan Barrett](https://esolangs.org/wiki/User:Morganbarrett)
+- [break and continue](https://esolangs.org/wiki/Brainfuck_algorithms#break_and_continue):
+  control/break_and_continue.md by [Sunjay Varma](https://esolangs.org/wiki/User:Sunjay)
+- [do { code } while (x)](https://esolangs.org/wiki/Brainfuck_algorithms#do_{_code_}_while_(x)):
+  control/do_while.b.orig by [None1](https://esolangs.org/wiki/User:None1)
+- [if (x) { code }](https://esolangs.org/wiki/Brainfuck_algorithms#if_(x)_{_code_}):
+  control/if{1,2,3}.b
+- [if (x) { code1 } else { code2 }](https://esolangs.org/wiki/Brainfuck_algorithms#if_(x)_{_code1_}_else_{_code2_}):
+  control/if_else1.b by [Jeffry Johnston](https://esolangs.org/wiki/User:Calamari),
+  control/if_else2.b by Daniel Marschall,
+  control/if_else3.b by Ben-Arba
+- [switch (x) {case 1: code1, case 2: code 2}](https://esolangs.org/wiki/Brainfuck_algorithms#switch_(x)_{case_1:_code1,_case_2:_code_2}):
+  control/switch.b.orig
 
 License: [CC0 1.0 Universal Public Domain Dedication](https://esolangs.org/wiki/Esolang:Copyrights)

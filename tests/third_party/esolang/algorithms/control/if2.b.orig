@@ -1,0 +1,7 @@
+[if (x) { code }]
+
+temp0[-]
+x[
+ code
+ temp0
+]x

@@ -1,0 +1,13 @@
+[while (x) { code }
+
+Attribution: Sunjay Varma <https://esolangs.org/wiki/User:Sunjay>
+
+To implement a while loop, you need to evaluate the condition x both before the
+loop and at the end of the loop body.]
+
+evaluate x
+x[
+ code
+ evaluate x again
+ x
+]

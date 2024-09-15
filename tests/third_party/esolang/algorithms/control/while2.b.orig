@@ -1,0 +1,18 @@
+[while (x) { code }
+
+Attribution: Morgan Barrett <https://esolangs.org/wiki/User:Morganbarrett>
+
+If the predicate is sufficiently complicated, you can get away with only
+evaluating it once like so:]
+
+temp0[-]+[
+ temp0-
+ evaluate x[
+  code
+  temp0+
+  †
+ ]
+ temp0
+]
+
+[† Move to any location with a value of 0]
