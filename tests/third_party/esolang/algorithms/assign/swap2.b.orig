@@ -1,0 +1,5 @@
+[swap x, y (wrapping)]
+
+x[-temp0+y-x]
+y[-x+y]
+temp0[-y+x+temp0]

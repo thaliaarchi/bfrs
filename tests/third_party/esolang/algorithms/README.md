@@ -33,5 +33,7 @@ original in a corresponding .b.orig file.
   math/div_assign2.b by Softengy
 - [x´ = x<sup>y</sup>](https://esolangs.org/wiki/Brainfuck_algorithms#x%C2%B4_=_xy):
   math/exp_assign.b by chad3814
+- [swap x, y](https://esolangs.org/wiki/Brainfuck_algorithms#swap_x,_y):
+  assign/swap{1,2}.b
 
 License: [CC0 1.0 Universal Public Domain Dedication](https://esolangs.org/wiki/Esolang:Copyrights)
