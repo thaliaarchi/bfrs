@@ -1,0 +1,6 @@
+in0 = input
+guard_shift 1
+in1 = input
+@0 = @1 + in0 * 2 + in1 + 4
+@1 = 0
+shift 1

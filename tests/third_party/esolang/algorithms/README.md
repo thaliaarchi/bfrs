@@ -1,7 +1,7 @@
 # Brainfuck algorithms on the Esolang wiki
 
 The programs on the [Brainfuck algorithms](https://esolangs.org/wiki/Brainfuck_algorithms)
-page. These programs are current as of revision [2024-09-15 11:00:24](https://esolangs.org/w/index.php?title=Brainfuck_algorithms&oldid=139406)
+page. These programs are current as of revision [2024-09-15 11:33:22](https://esolangs.org/w/index.php?title=Brainfuck_algorithms&oldid=139420)
 and authors are credited when attributed in the text.
 
 In programs that use placeholders for shifts or constants, I have inserted
@@ -115,5 +115,8 @@ do not have a corresponding .b file.
   control/if_else3.b by Ben-Arba
 - [switch (x) {case 1: code1, case 2: code 2}](https://esolangs.org/wiki/Brainfuck_algorithms#switch_(x)_{case_1:_code1,_case_2:_code_2}):
   control/switch.b.orig
+- [x = pseudo-random number](https://esolangs.org/wiki/Brainfuck_algorithms#x_=_pseudo-random_number):
+  rand/lcg.b by [Jeffry Johnston](https://esolangs.org/wiki/User:Calamari),
+  rand/simple.b by [Cinnamony](https://esolangs.org/wiki/User:Cinnamony)
 
 License: [CC0 1.0 Universal Public Domain Dedication](https://esolangs.org/wiki/Esolang:Copyrights)
