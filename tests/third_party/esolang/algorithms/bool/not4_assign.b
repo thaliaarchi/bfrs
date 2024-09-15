@@ -1,0 +1,11 @@
+[x´ = not x (boolean, logical)
+
+Attribution: Yuval Meshorer <https://esolangs.org/wiki/User:YuvalM>
+
+Even another version that consumes x. Returns 0 (false) if x is 1 (true) and 1
+if x is 0.
+
+Layout: x temp0]
+
+temp0>[-]
+x<[temp0>-x<-]temp0>+

@@ -1,7 +1,7 @@
 # Brainfuck algorithms on the Esolang wiki
 
 The programs on the [Brainfuck algorithms](https://esolangs.org/wiki/Brainfuck_algorithms)
-page. These programs are current as of revision [2024-09-15 04:33:59](https://esolangs.org/w/index.php?title=Brainfuck_algorithms&oldid=139329)
+page. These programs are current as of revision [2024-09-15 06:10:07](https://esolangs.org/w/index.php?title=Brainfuck_algorithms&oldid=139351)
 and authors are credited when attributed in the text.
 
 In programs that use placeholders for shifts or constants, I have inserted
@@ -70,5 +70,13 @@ do not have a corresponding .b file.
   compare/gt.b by [ais523](https://esolangs.org/wiki/User:Ais523)
 - [z = sign(x-y)](https://esolangs.org/wiki/Brainfuck_algorithms#z_=_sign(x-y)):
   compare/cmp_nowrap.b by [quintopia](https://esolangs.org/wiki/User:Quintopia)
+- [x´ = not x (boolean, logical)](https://esolangs.org/wiki/Brainfuck_algorithms#x%C2%B4_=_not_x_(boolean,_logical)):
+  bool/not1_assign.b by [Jeffry Johnston](https://esolangs.org/wiki/User:Calamari),
+  bool/not2_assign.b by [Sunjay Varma](https://esolangs.org/wiki/User:Sunjay),
+  bool/not3_assign.b,
+  bool/not4_assign.b by [Yuval Meshorer](https://esolangs.org/wiki/User:YuvalM),
+  bool/not5_assign.b by User:A
+- [y = not x (boolean, logical)](https://esolangs.org/wiki/Brainfuck_algorithms#y_=_not_x_(boolean,_logical)):
+  bool/not.b by [FSHelix](https://esolangs.org/wiki/User:FSHelix)
 
 License: [CC0 1.0 Universal Public Domain Dedication](https://esolangs.org/wiki/Esolang:Copyrights)
