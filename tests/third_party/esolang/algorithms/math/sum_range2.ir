@@ -1,0 +1,14 @@
+{
+    guard_shift 1
+    guard_shift 2
+    shift 2
+}
+while @0 != 0 {
+    guard_shift -1
+    guard_shift -2
+    guard_shift 1
+    @-2 = @-2 + @-1 + 1
+    @-1 = 0
+    @0 = @0 - 1
+    @1 = @-2 + @1
+}

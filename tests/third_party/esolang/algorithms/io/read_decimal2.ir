@@ -1,0 +1,4 @@
+in0 = input
+guard_shift 1
+@0 = (@1 + 8) * -6 + in0
+@1 = 0

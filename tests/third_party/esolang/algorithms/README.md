@@ -1,7 +1,7 @@
 # Brainfuck algorithms on the Esolang wiki
 
 The programs on the [Brainfuck algorithms](https://esolangs.org/wiki/Brainfuck_algorithms)
-page. These programs are current as of revision [2024-09-15 11:48:06](https://esolangs.org/w/index.php?title=Brainfuck_algorithms&oldid=139422)
+page. These programs are current as of revision [2024-09-15 12:16:31](https://esolangs.org/w/index.php?title=Brainfuck_algorithms&oldid=139425)
 and authors are credited when attributed in the text.
 
 In programs that use placeholders for shifts or constants, I have inserted
@@ -124,5 +124,16 @@ do not have a corresponding .b file.
   math/divmod5.b
 - [Modulo](https://esolangs.org/wiki/Brainfuck_algorithms#Modulo):
   math/mod{1,2}.b
+- [Print value of cell x as number (8-bit)](https://esolangs.org/wiki/Brainfuck_algorithms#Print_value_of_cell_x_as_number_(8-bit)):
+  io/print_decimal.b by itchyny
+- [Print value of cell x as number for ANY sized cell (eg 8bit, 100000bit etc)](https://esolangs.org/wiki/Brainfuck_algorithms#Print_value_of_cell_x_as_number_for_ANY_sized_cell_(eg_8bit,_100000bit_etc)):
+  io/print_decimal_any_size{1,2}.b
+- [Input a decimal number](https://esolangs.org/wiki/Brainfuck_algorithms#Input_a_decimal_number):
+  io/read_decimal1.b by Urban Müller,
+  io/read_decimal{2,3}.b by [Tommyaweosme](https://esolangs.org/wiki/User:Tommyaweosme),
+- [Count up with step x, from y to infinity](https://esolangs.org/wiki/Brainfuck_algorithms#Count_up_with_step_x,_from_y_to_infinity):
+  control/loop_stride.b
+- [while(c=getchar()!=X)](https://esolangs.org/wiki/Brainfuck_algorithms#while(c=getchar()!=X)):
+  io/read_until.b
 
 License: [CC0 1.0 Universal Public Domain Dedication](https://esolangs.org/wiki/Esolang:Copyrights)

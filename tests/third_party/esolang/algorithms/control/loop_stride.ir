@@ -1,0 +1,4 @@
+while @0 != 0 {
+    in0 = input
+    @0 = in0
+}

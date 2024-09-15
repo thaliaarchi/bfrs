@@ -1,0 +1,41 @@
+{
+    guard_shift 1
+    @1 = 1
+    shift 1
+}
+while @0 != 0 {
+    {
+        guard_shift 1
+        in0 = input
+        @0 = 0
+        @1 = in0
+        shift 1
+    }
+    if @0 != 0 {
+        {
+            @0 = @0 + 1
+        }
+        if @0 != 0 {
+            {
+                @0 = @0 - 11
+            }
+            if @0 != 0 {
+                guard_shift 1
+                guard_shift -1
+                guard_shift -2
+                @-2 = @-2 * 10 + @0 - 38
+                @-1 = @-1 + 1
+                @0 = 0
+                @1 = 0
+            }
+        }
+    }
+    {
+        guard_shift -1
+        shift -1
+    }
+}
+{
+    guard_shift -1
+    shift -1
+}

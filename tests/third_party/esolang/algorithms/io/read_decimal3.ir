@@ -1,0 +1,15 @@
+in0 = input
+guard_shift 1
+in1 = input
+guard_shift 2
+in2 = input
+guard_shift 3
+guard_shift 4
+guard_shift 5
+@0 = (((@1 + 8) * -6 + in0) * 10 + @4) * 10 + ((@2 + 8) * -6 + in1) * 10 + (@3 + 8) * -6 + @5 + in2
+@1 = 0
+@2 = 0
+@3 = 0
+@4 = 0
+@5 = 0
+shift 3

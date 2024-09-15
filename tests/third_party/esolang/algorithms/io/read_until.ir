@@ -1,0 +1,35 @@
+{
+    guard_shift 1
+    @0 = @0 + 1
+    @1 = @1 + 10
+}
+while @0 != 0 {
+    {
+        in0 = input
+        guard_shift 1
+        guard_shift 2
+        guard_shift 3
+        guard_shift 4
+        guard_shift 5
+        @0 = @2 + in0
+        @1 = @1 + @3
+        @2 = 0
+        @3 = 0
+        @4 = 0
+        @5 = @1 + @4 + @5 + in0
+        shift 5
+    }
+    while @0 != 0 {
+        guard_shift -1
+        @0 = @0 + 2
+        shift -1
+    }
+    {
+        guard_shift 1
+        guard_shift -1
+        guard_shift -2
+        @-2 = @-2 + @1
+        @1 = 0
+        shift -2
+    }
+}

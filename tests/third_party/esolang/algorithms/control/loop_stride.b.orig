@@ -1,0 +1,3 @@
+[Count up with step x, from y to infinity]
+
+x[[-y+temp+x]temp[-y+x+temp]x]
