@@ -1,0 +1,6 @@
+[x´ = not x (bitwise) (wrapping)]
+
+temp0[-]
+x-
+[temp0-x-]
+temp0[x+temp0-]

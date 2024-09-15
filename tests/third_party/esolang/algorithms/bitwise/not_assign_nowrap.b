@@ -1,0 +1,11 @@
+[x´ = not x (bitwise) (non-wrapping)
+
+Produces an answer for 8-bit cells. For other sized cells, set temp1 to
+2^(bits)-1.
+
+Layout: x temp0 temp1]
+
+temp0>[-]
+temp1>[-]+++++++++++++++[temp0<+++++++++++++++++temp1>-]
+x<<[temp0>-x<-]
+temp0>[x<+temp0>-]

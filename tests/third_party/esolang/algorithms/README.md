@@ -2,9 +2,12 @@
 
 The programs on the [Brainfuck algorithms](https://esolangs.org/wiki/Brainfuck_algorithms)
 page. These programs are current as of revision [2024-09-07 00:11:53](https://esolangs.org/w/index.php?title=Brainfuck_algorithms&oldid=138198)
-and authors are credited when attributed in the text. In programs that use
-placeholders for shifts or constants, I have inserted values and placed the
-original in a corresponding .b.orig file.
+and authors are credited when attributed in the text.
+
+In programs that use placeholders for shifts or constants, I have inserted
+values and placed the original in a corresponding .b.orig file. Programs for
+which I could not deduce the meaning of their placeholder notation do not have a
+corresponding .b file.
 
 - [Header comment](https://esolangs.org/wiki/Brainfuck_algorithms#Header_comment):
   comment/header_comment{1,2,3}.b
@@ -35,5 +38,9 @@ original in a corresponding .b.orig file.
   math/exp_assign.b by chad3814
 - [swap x, y](https://esolangs.org/wiki/Brainfuck_algorithms#swap_x,_y):
   assign/swap{1,2}.b
+- [x = -x](https://esolangs.org/wiki/Brainfuck_algorithms#x_=_-x):
+  math/neg_assign.b, math/neg_assign_nowrap.b
+- [x´ = not x (bitwise)](https://esolangs.org/wiki/Brainfuck_algorithms#x%C2%B4_=_not_x_(bitwise)):
+  bitwise/not_assign1.b, bitwise/not_assign2.b.orig, bitwise/not_assign_nowrap.b
 
 License: [CC0 1.0 Universal Public Domain Dedication](https://esolangs.org/wiki/Esolang:Copyrights)

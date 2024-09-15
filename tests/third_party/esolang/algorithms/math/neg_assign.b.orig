@@ -1,0 +1,5 @@
+[x = -x (wrapping)]
+
+temp0[-]
+x[temp0-x-]
+temp0[x-temp0+]

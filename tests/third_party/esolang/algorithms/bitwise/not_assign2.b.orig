@@ -1,0 +1,6 @@
+[x´ = not x (bitwise) (wrapping)
+
+Note that y is just for pointer-placing. Remember to let x be the #x th(x>=1)
+and y to be greater than x.]
+
+x-[[-]+y](y-1)
