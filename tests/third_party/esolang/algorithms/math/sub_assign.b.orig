@@ -1,0 +1,5 @@
+[x´ = x - y (wrapping)]
+
+temp0[-]
+y[x-temp0+y-]
+temp0[y+temp0-]

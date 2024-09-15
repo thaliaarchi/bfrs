@@ -1,0 +1,5 @@
+guard_shift 1
+guard_shift 2
+@0 = @0 + @1
+@2 = 0
+shift 2
