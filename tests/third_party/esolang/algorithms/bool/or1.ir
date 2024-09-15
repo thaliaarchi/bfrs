@@ -1,0 +1,17 @@
+{
+    guard_shift 1
+    guard_shift 2
+    guard_shift 3
+    @0 = 0
+    @2 = @0
+    @3 = @0 * -1 + 1
+    shift 3
+}
+if @0 != 0 {
+    guard_shift -1
+    guard_shift -2
+    @-2 = 0
+    @-1 = @-2 + @-1
+    @0 = @0 - 1
+    shift -2
+}

@@ -1,7 +1,7 @@
 # Brainfuck algorithms on the Esolang wiki
 
 The programs on the [Brainfuck algorithms](https://esolangs.org/wiki/Brainfuck_algorithms)
-page. These programs are current as of revision [2024-09-15 06:40:19](https://esolangs.org/w/index.php?title=Brainfuck_algorithms&oldid=139352)
+page. These programs are current as of revision [2024-09-15 07:26:21](https://esolangs.org/w/index.php?title=Brainfuck_algorithms&oldid=139356)
 and authors are credited when attributed in the text.
 
 In programs that use placeholders for shifts or constants, I have inserted
@@ -85,5 +85,12 @@ do not have a corresponding .b file.
   bool/and2.b by [Yuval Meshorer](https://esolangs.org/wiki/User:YuvalM)
 - [z = x nand y (boolean, logical)](https://esolangs.org/wiki/Brainfuck_algorithms#z_=_x_nand_y_(boolean,_logical)):
   bool/nand.b by [FSHelix](https://esolangs.org/wiki/User:FSHelix)
+- [x´ = x or y (boolean, logical)](https://esolangs.org/wiki/Brainfuck_algorithms#x%C2%B4_=_x_or_y_(boolean,_logical)):
+  bool/or_assign1.b by [Jeffry Johnston](https://esolangs.org/wiki/User:Calamari),
+  bool/or_assign2.b by [Yuval Meshorer](https://esolangs.org/wiki/User:YuvalM)
+- [z = x or y (boolean, logical)](https://esolangs.org/wiki/Brainfuck_algorithms#z_=_x_or_y_(boolean,_logical)):
+  bool/or1.b by [Sunjay Varma](https://esolangs.org/wiki/User:Sunjay),
+  bool/or2.b by [Yuval Meshorer](https://esolangs.org/wiki/User:YuvalM),
+  bool/or{3,4}.b
 
 License: [CC0 1.0 Universal Public Domain Dedication](https://esolangs.org/wiki/Esolang:Copyrights)
