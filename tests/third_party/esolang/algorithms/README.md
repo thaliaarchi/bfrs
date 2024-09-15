@@ -5,9 +5,9 @@ page. These programs are current as of revision [2024-09-07 00:11:53](https://es
 and authors are credited when attributed in the text.
 
 In programs that use placeholders for shifts or constants, I have inserted
-values and placed the original in a corresponding .b.orig file. Programs for
-which I could not deduce the meaning of their placeholder notation do not have a
-corresponding .b file.
+values and placed the original templates in a corresponding .b.orig file.
+Programs for which I could not deduce the meaning of their placeholder notation
+do not have a corresponding .b file.
 
 - [Header comment](https://esolangs.org/wiki/Brainfuck_algorithms#Header_comment):
   comment/header_comment{1,2,3}.b
@@ -42,5 +42,11 @@ corresponding .b file.
   math/neg_assign.b, math/neg_assign_nowrap.b
 - [x´ = not x (bitwise)](https://esolangs.org/wiki/Brainfuck_algorithms#x%C2%B4_=_not_x_(bitwise)):
   bitwise/not_assign1.b, bitwise/not_assign2.b.orig, bitwise/not_assign_nowrap.b
+- [Find a zeroed cell](https://esolangs.org/wiki/Brainfuck_algorithms#Find_a_zeroed_cell):
+  shift/find_zero_{right,left}.b
+- [Find a non-zeroed cell](https://esolangs.org/wiki/Brainfuck_algorithms#Find_a_non-zeroed_cell):
+  shift/find_nonzero_{right,left}.b by [Epsilon](https://esolangs.org/wiki/User:Epsilon)
+- [Move pointer x (empty) cells](https://esolangs.org/wiki/Brainfuck_algorithms#Move_pointer_x_(empty)_cells):
+  shift/shift_dynamic_{right,left}.b by [Kman](https://esolangs.org/wiki/User:Kman)
 
 License: [CC0 1.0 Universal Public Domain Dedication](https://esolangs.org/wiki/Esolang:Copyrights)
