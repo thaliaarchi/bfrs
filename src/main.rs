@@ -22,6 +22,6 @@ fn main() {
     };
     let mut g = Graph::new();
     let mut ir = Ir::lower(&ast, &mut g);
-    Ir::optimize_root(&mut ir, &mut g);
-    print!("{}", Ir::pretty_root(&ir, &g));
+    ir.optimize(&mut g);
+    print!("{}", ir.pretty(&g));
 }

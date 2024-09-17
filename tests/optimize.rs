@@ -6,15 +6,15 @@ fn test_lower(src: &str, expect: &str) {
     let mut g = Graph::new();
     let ast = Ast::parse(src.as_bytes()).unwrap();
     let ir = Ir::lower(&ast, &mut g);
-    assert!(Ir::compare_pretty_root(&ir, expect, &g));
+    assert!(ir.compare_pretty(expect, &g));
 }
 
 fn test_optimize(src: &str, expect: &str) {
     let mut g = Graph::new();
     let ast = Ast::parse(src.as_bytes()).unwrap();
     let mut ir = Ir::lower(&ast, &mut g);
-    Ir::optimize_root(&mut ir, &mut g);
-    assert!(Ir::compare_pretty_root(&ir, expect, &g));
+    ir.optimize(&mut g);
+    assert!(ir.compare_pretty(expect, &g));
 }
 
 fn test_lower_file(src_path: &str, expect_path: &str) {

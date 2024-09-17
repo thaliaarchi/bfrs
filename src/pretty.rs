@@ -2,7 +2,7 @@ use std::fmt::{self, Debug, Formatter, Write};
 
 use crate::{
     graph::{ArrayId, ByteId, Graph, NodeId, NodeRef, TypedNodeId},
-    ir::{Condition, Ir},
+    ir::{Cfg, Condition, Ir},
     node::Byte,
     region::{Effect, Region},
 };
@@ -22,8 +22,8 @@ impl<'a> PrettyPrinter<'a> {
         }
     }
 
-    fn pretty_blocks(&mut self, blocks: &[Ir], g: &Graph, indent: usize) -> fmt::Result {
-        if let [Ir::BasicBlock(bb)] = blocks {
+    fn pretty_blocks(&mut self, blocks: &[Cfg], g: &Graph, indent: usize) -> fmt::Result {
+        if let [Cfg::BasicBlock(bb)] = blocks {
             self.pretty_region(bb, g, indent)
         } else if let [block] = blocks {
             self.pretty_ir(block, g, indent)
@@ -35,16 +35,16 @@ impl<'a> PrettyPrinter<'a> {
         }
     }
 
-    fn pretty_ir(&mut self, ir: &Ir, g: &Graph, indent: usize) -> fmt::Result {
+    fn pretty_ir(&mut self, ir: &Cfg, g: &Graph, indent: usize) -> fmt::Result {
         match ir {
-            Ir::BasicBlock(bb) => {
+            Cfg::BasicBlock(bb) => {
                 self.indent(indent)?;
                 write!(self.w, "{{\n")?;
                 self.pretty_region(bb, g, indent + 1)?;
                 self.indent(indent)?;
                 write!(self.w, "}}\n")
             }
-            Ir::Loop { condition, body } => {
+            Cfg::Loop { condition, body } => {
                 self.indent(indent)?;
                 match condition {
                     Condition::WhileNonZero => write!(self.w, "while @0 != 0")?,
@@ -257,27 +257,29 @@ impl Ir {
     }
 
     pub fn write_pretty(&self, w: &mut dyn Write, g: &Graph) -> fmt::Result {
+        PrettyPrinter::new(w).pretty_blocks(&self.blocks, g, 0)
+    }
+
+    pub fn compare_pretty(&self, expect: &str, g: &Graph) -> bool {
+        let mut s = String::new();
+        self.write_pretty(&mut s, g).unwrap();
+        compare_pretty(&s, expect)
+    }
+}
+
+impl Cfg {
+    pub fn pretty(&self, g: &Graph) -> String {
+        let mut s = String::new();
+        self.write_pretty(&mut s, g).unwrap();
+        s
+    }
+
+    pub fn write_pretty(&self, w: &mut dyn Write, g: &Graph) -> fmt::Result {
         PrettyPrinter::new(w).pretty_ir(self, g, 0)
     }
 
     pub fn compare_pretty(&self, expect: &str, g: &Graph) -> bool {
         compare_pretty(&self.pretty(g), expect)
-    }
-
-    pub fn pretty_root(blocks: &[Ir], g: &Graph) -> String {
-        let mut s = String::new();
-        Ir::write_pretty_root(blocks, &mut s, g).unwrap();
-        s
-    }
-
-    pub fn write_pretty_root(blocks: &[Ir], w: &mut dyn Write, g: &Graph) -> fmt::Result {
-        PrettyPrinter::new(w).pretty_blocks(blocks, g, 0)
-    }
-
-    pub fn compare_pretty_root(blocks: &[Ir], expect: &str, g: &Graph) -> bool {
-        let mut s = String::new();
-        Ir::write_pretty_root(blocks, &mut s, g).unwrap();
-        compare_pretty(&s, expect)
     }
 }
 

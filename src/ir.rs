@@ -13,12 +13,18 @@ use crate::{
 //   shifts have not already been guarded.
 // - Check for guaranteed zero recursively instead of iteratively.
 // - Add infinite loop condition.
-// - Sort `Add` operands by offset.
 // - Move guard_shift out of loops with no net shift. Peel the first iteration
 //   if necessary.
 
+/// The root of the IR.
 #[derive(Clone, PartialEq, Eq)]
-pub enum Ir {
+pub struct Ir {
+    pub blocks: Vec<Cfg>,
+}
+
+/// A control node in the IR.
+#[derive(Clone, PartialEq, Eq)]
+pub enum Cfg {
     /// A basic block of non-branching instructions.
     BasicBlock(Region),
     /// Loop while some condition is true.
@@ -26,10 +32,11 @@ pub enum Ir {
         /// Loop condition.
         condition: Condition,
         /// The contained blocks.
-        body: Vec<Ir>,
+        body: Vec<Cfg>,
     },
 }
 
+/// A loop condition.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Condition {
     /// Loop while the current cell is non-zero.
@@ -41,14 +48,20 @@ pub enum Condition {
 }
 
 impl Ir {
-    pub fn lower(mut ast: &[Ast], g: &mut Graph) -> Vec<Self> {
+    pub fn lower(ast: &[Ast], g: &mut Graph) -> Self {
+        Ir {
+            blocks: Ir::lower_blocks(ast, g),
+        }
+    }
+
+    fn lower_blocks(mut ast: &[Ast], g: &mut Graph) -> Vec<Cfg> {
         let mut memory = MemoryBuilder::new();
         let mut ir = vec![];
         while let Some((inst, rest)) = ast.split_first() {
             if let Ast::Loop(body) = inst {
-                ir.push(Ir::Loop {
+                ir.push(Cfg::Loop {
                     condition: Condition::WhileNonZero,
-                    body: Ir::lower(body, g),
+                    body: Ir::lower_blocks(body, g),
                 });
                 ast = rest;
             } else {
@@ -57,7 +70,7 @@ impl Ir {
                     .position(|inst| matches!(inst, Ast::Loop(_)))
                     .unwrap_or(ast.len());
                 let (linear_insts, rest) = ast.split_at(i);
-                ir.push(Ir::BasicBlock(Region::from_basic_block(
+                ir.push(Cfg::BasicBlock(Region::from_basic_block(
                     linear_insts,
                     &mut memory,
                     g,
@@ -68,23 +81,24 @@ impl Ir {
         ir
     }
 
-    pub fn optimize_root(ir: &mut Vec<Ir>, g: &mut Graph) {
-        let first_non_loop = ir
+    pub fn optimize(&mut self, g: &mut Graph) {
+        let first_non_loop = self
+            .blocks
             .iter()
-            .position(|block| !matches!(block, Ir::Loop { .. }))
+            .position(|block| !matches!(block, Cfg::Loop { .. }))
             .unwrap_or(0);
-        ir.drain(..first_non_loop);
-        Ir::optimize_blocks(ir, g);
+        self.blocks.drain(..first_non_loop);
+        Self::optimize_blocks(&mut self.blocks, g);
     }
 
-    fn optimize_blocks(ir: &mut Vec<Ir>, g: &mut Graph) {
+    fn optimize_blocks(ir: &mut Vec<Cfg>, g: &mut Graph) {
         ir.dedup_by(|block2, block1| match (block1, block2) {
             (
-                Ir::Loop {
+                Cfg::Loop {
                     condition: Condition::WhileNonZero,
                     ..
                 },
-                Ir::Loop {
+                Cfg::Loop {
                     condition: Condition::WhileNonZero,
                     ..
                 },
@@ -95,21 +109,23 @@ impl Ir {
             block.optimize(g);
         }
         ir.dedup_by(|block2, block1| match (block1, block2) {
-            (Ir::BasicBlock(block1), Ir::BasicBlock(block2)) => {
+            (Cfg::BasicBlock(block1), Cfg::BasicBlock(block2)) => {
                 block1.concat(block2, g);
                 true
             }
             _ => false,
         });
     }
+}
 
+impl Cfg {
     /// Optimizes decrement loops and if-style loops.
     pub fn optimize(&mut self, g: &mut Graph) {
-        if let Ir::BasicBlock(bb) = self {
+        if let Cfg::BasicBlock(bb) = self {
             bb.join_outputs(g);
-        } else if let Ir::Loop { condition, body } = self {
+        } else if let Cfg::Loop { condition, body } = self {
             Ir::optimize_blocks(body, g);
-            if let [Ir::BasicBlock(bb)] = body.as_mut_slice() {
+            if let [Cfg::BasicBlock(bb)] = body.as_mut_slice() {
                 if bb.memory.offset() == 0 {
                     if let Some(current) = bb.memory.get_cell(0) {
                         if let Byte::Add(lhs, rhs) = g[current] {
@@ -153,7 +169,7 @@ impl Ir {
             let mut offset = 0;
             for block in body.iter().rev() {
                 match block {
-                    Ir::BasicBlock(bb) => {
+                    Cfg::BasicBlock(bb) => {
                         if let Some(v) = bb.memory.get_cell(bb.memory.offset()) {
                             match g[v] {
                                 Byte::Const(0) => {
@@ -169,7 +185,7 @@ impl Ir {
                         }
                         offset += bb.memory.offset();
                     }
-                    Ir::Loop { .. } => {
+                    Cfg::Loop { .. } => {
                         guaranteed_zero = offset == 0;
                         break;
                     }
@@ -184,9 +200,16 @@ impl Ir {
 
 impl Debug for Ir {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "Ir ")?;
+        f.debug_list().entry(&self.blocks).finish()
+    }
+}
+
+impl Debug for Cfg {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            Ir::BasicBlock(bb) => Debug::fmt(bb, f),
-            Ir::Loop { condition, body } => {
+            Cfg::BasicBlock(bb) => Debug::fmt(bb, f),
+            Cfg::Loop { condition, body } => {
                 write!(f, "Loop({condition:?}) ")?;
                 f.debug_list().entries(body).finish()
             }
@@ -233,7 +256,11 @@ fn mod_inverse(value: u8) -> Option<u8> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{graph::Graph, ir::Ir, Ast};
+    use crate::{
+        graph::Graph,
+        ir::{Cfg, Ir},
+        Ast,
+    };
 
     fn assert_node_count(src: &str, nodes: usize) {
         let mut g = Graph::new();
@@ -266,7 +293,7 @@ mod tests {
             @0 = in0 - 1
             shift 1
         ";
-        assert!(Ir::compare_pretty_root(&ir1, expect1, &g));
+        assert!(ir1.compare_pretty(expect1, &g));
 
         let src2 = ",<-";
         let ir2 = Ir::lower(&Ast::parse(src2.as_bytes()).unwrap(), g);
@@ -277,10 +304,10 @@ mod tests {
             @0 = in0
             shift -1
         ";
-        assert!(Ir::compare_pretty_root(&ir2, expect2, &g));
+        assert!(ir2.compare_pretty(expect2, &g));
 
-        let (mut bb1, mut bb2) = match (&*ir1, &*ir2) {
-            ([Ir::BasicBlock(bb1)], [Ir::BasicBlock(bb2)]) => (bb1.clone(), bb2.clone()),
+        let (mut bb1, mut bb2) = match (&*ir1.blocks, &*ir2.blocks) {
+            ([Cfg::BasicBlock(bb1)], [Cfg::BasicBlock(bb2)]) => (bb1.clone(), bb2.clone()),
             _ => panic!("not single basic blocks: {ir1:?}, {ir2:?}"),
         };
         bb1.concat(&mut bb2, g);
