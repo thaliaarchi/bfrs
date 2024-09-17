@@ -1,7 +1,7 @@
 # Brainfuck algorithms on the Esolang wiki
 
 The programs on the [Brainfuck algorithms](https://esolangs.org/wiki/Brainfuck_algorithms)
-page. These programs are current as of revision [2024-09-15 12:16:31](https://esolangs.org/w/index.php?title=Brainfuck_algorithms&oldid=139425)
+page. These programs are current as of revision [2024-09-17 00:18:39](https://esolangs.org/w/index.php?title=Brainfuck_algorithms&oldid=139541)
 and authors are credited when attributed in the text.
 
 In programs that use placeholders for shifts or constants, I have inserted
@@ -9,8 +9,10 @@ values and placed the original templates in a corresponding .b.orig file.
 Programs for which I could not deduce the meaning of their placeholder notation
 do not have a corresponding .b file.
 
-- [Header comment](https://esolangs.org/wiki/Brainfuck_algorithms#Header_comment):
-  comment/header_comment{1,2,3}.b
+- [Comment loop](https://esolangs.org/wiki/Brainfuck_algorithms#Comment_loop):
+  comment/header_comment.b,
+  comment/comment_after_clear.b,
+  comment/comment_after_loop.b
 - [Read all characters into memory](https://esolangs.org/wiki/Brainfuck_algorithms#Read_all_characters_into_memory):
   io/read_all_chars.b
 - [Read until newline/other char](https://esolangs.org/wiki/Brainfuck_algorithms#Read_until_newline/other_char):
