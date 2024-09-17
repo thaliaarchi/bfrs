@@ -18,7 +18,21 @@ pub struct ByteId(pub(super) NodeId);
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ArrayId(pub(super) NodeId);
 
+/// The ID of a node in a graph, tagged with its type.
+pub enum TypedNodeId {
+    Byte(ByteId),
+    Array(ArrayId),
+}
+
 impl NodeId {
+    /// Tags this ID with its type.
+    pub fn with_type(&self, g: &Graph) -> TypedNodeId {
+        match g[*self] {
+            Node::Byte(_) => TypedNodeId::Byte(ByteId(*self)),
+            Node::Array(_) => TypedNodeId::Array(ArrayId(*self)),
+        }
+    }
+
     /// Downcasts to a byte ID if the node is a byte.
     pub fn as_byte_id(&self, g: &Graph) -> Option<ByteId> {
         if let Node::Byte(_) = g[*self] {

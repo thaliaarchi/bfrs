@@ -1,7 +1,7 @@
 use std::fmt::{self, Debug, Formatter};
 
 use crate::{
-    graph::{ArrayId, ByteId, Graph, NodeId},
+    graph::{ArrayId, ByteId, Graph, NodeId, TypedNodeId},
     memory::{Memory, MemoryBuilder},
     node::{Array, Byte, Node},
     Ast,
@@ -106,12 +106,9 @@ impl Region {
     /// Replaces `Copy` and `Input` nodes in the node to be relative to this
     /// region.
     fn rebase_node(&mut self, node: NodeId, g: &mut Graph) -> NodeId {
-        if let Some(id) = node.as_byte_id(g) {
-            self.rebase_byte(id, g).as_node_id()
-        } else if let Some(id) = node.as_array_id(g) {
-            self.rebase_array(id, g).as_node_id()
-        } else {
-            unreachable!();
+        match node.with_type(g) {
+            TypedNodeId::Byte(id) => self.rebase_byte(id, g).as_node_id(),
+            TypedNodeId::Array(id) => self.rebase_array(id, g).as_node_id(),
         }
     }
 

@@ -1,7 +1,7 @@
 use std::fmt::{self, Debug, Formatter, Write};
 
 use crate::{
-    graph::{ArrayId, ByteId, Graph, NodeId, NodeRef},
+    graph::{ArrayId, ByteId, Graph, NodeId, NodeRef, TypedNodeId},
     ir::{Condition, Ir},
     node::Byte,
     region::{Effect, Region},
@@ -159,12 +159,9 @@ impl Debug for NodeId {
 impl Debug for NodeRef<'_, NodeId> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let g = self.graph();
-        if let Some(id) = self.id().as_byte_id(g) {
-            Debug::fmt(&id.get(g), f)
-        } else if let Some(id) = self.id().as_array_id(g) {
-            Debug::fmt(&id.get(g), f)
-        } else {
-            unreachable!();
+        match self.id().with_type(g) {
+            TypedNodeId::Byte(id) => Debug::fmt(&id.get(g), f),
+            TypedNodeId::Array(id) => Debug::fmt(&id.get(g), f),
         }
     }
 }
