@@ -3,6 +3,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::{
     fmt::{self, Debug, Formatter},
     hash::{BuildHasher, Hash, Hasher},
+    num::NonZeroU32,
     ops::{Deref, Index, IndexMut},
     ptr,
 };
@@ -32,7 +33,7 @@ pub struct Graph {
 /// The ID of a node in a graph.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct NodeId {
-    index: u32,
+    node_id: NonZeroU32,
     #[cfg(debug_assertions)]
     graph_id: u32,
 }
@@ -46,18 +47,6 @@ pub struct NodeRef<'g, T> {
 
 #[cfg(debug_assertions)]
 static GRAPH_ID: AtomicU32 = AtomicU32::new(0);
-
-macro_rules! insert(($self:expr, $node:expr) => {{
-    let Ok(index) = u32::try_from($self.nodes.len()) else {
-        panic!("graph too large for u32 index");
-    };
-    $self.nodes.push($node);
-    NodeId {
-        index,
-        #[cfg(debug_assertions)]
-        graph_id: $self.graph_id,
-    }
-}});
 
 impl Graph {
     /// Constructs an empty graph.
@@ -77,7 +66,7 @@ impl Graph {
     pub fn insert_byte(&mut self, node: Byte) -> ByteId {
         self.assert_byte(&node);
         match &node {
-            Byte::Copy(_) | Byte::Input { .. } => ByteId(insert!(self, Node::Byte(node))),
+            Byte::Copy(_) | Byte::Input { .. } => ByteId(self.insert(Node::Byte(node))),
             Byte::Const(_) | Byte::Add(_, _) | Byte::Mul(_, _) => {
                 ByteId(self.get_or_insert(Node::Byte(node)))
             }
@@ -89,6 +78,16 @@ impl Graph {
     pub fn insert_array(&mut self, node: Array) -> ArrayId {
         self.assert_array(&node);
         ArrayId(self.get_or_insert(Node::Array(node)))
+    }
+
+    /// Inserts a node without deduplicating and returns its ID.
+    fn insert(&mut self, node: Node) -> NodeId {
+        self.nodes.push(node);
+        NodeId::new(
+            self.nodes.len(),
+            #[cfg(debug_assertions)]
+            self.graph_id,
+        )
     }
 
     /// Gets or inserts a node and returns its ID.
@@ -105,7 +104,14 @@ impl Graph {
         *self
             .table
             .entry(hash, eq, hasher)
-            .or_insert_with(|| insert!(self, node))
+            .or_insert_with(|| {
+                self.nodes.push(node);
+                NodeId::new(
+                    self.nodes.len(),
+                    #[cfg(debug_assertions)]
+                    self.graph_id,
+                )
+            })
             .get()
     }
 
@@ -209,15 +215,40 @@ impl Default for Graph {
 }
 
 impl NodeId {
+    #[cfg(debug_assertions)]
+    fn new(node_id: usize, graph_id: u32) -> Self {
+        let Ok(node_id) = u32::try_from(node_id) else {
+            Self::graph_overflow();
+        };
+        let node_id = NonZeroU32::try_from(node_id).unwrap();
+        NodeId { node_id, graph_id }
+    }
+
+    #[cfg(not(debug_assertions))]
+    #[inline]
+    fn new(node_id: usize) -> Self {
+        let Ok(node_id) = u32::try_from(node_id) else {
+            Self::graph_overflow();
+        };
+        let node_id = unsafe { NonZeroU32::new_unchecked(node_id) };
+        NodeId { node_id }
+    }
+
     /// Returns the index of this node ID.
     #[inline]
     pub fn as_usize(&self) -> usize {
-        self.index as usize
+        self.node_id.get() as usize - 1
     }
 
     /// Gets a reference to this node.
     pub fn get<'g>(&self, g: &'g Graph) -> NodeRef<'g, NodeId> {
         g.get(*self)
+    }
+
+    #[inline(never)]
+    #[cold]
+    fn graph_overflow() -> ! {
+        panic!("graph too large for u32 index");
     }
 }
 
