@@ -6,7 +6,8 @@ Many patterns of loops are recognized and transformed into the closed form
 arithmetic expressions they compute.
 
 Architecturally, its intermediate representation is very similar to the
-[design of Cranelift](https://vimeo.com/843540328): It has a skeleton
-control-flow graph with pure values floating in an arena with global
-value-numbering. These pure nodes are rewritten to an idealized form on
+[design of Cranelift](https://vimeo.com/843540328): It has a control-flow graph
+with effectful nodes strictly ordered in basic blocks and pure values ordered by
+data dependencies, i.e., a control data flow graph. Pure values are managed in
+an arena with global value-numbering and are rewritten to an idealized form on
 construction.
