@@ -1,9 +1,6 @@
 use std::{cmp::Ordering, collections::BTreeSet, isize, mem, usize};
 
-use crate::{
-    graph::{ArrayId, ByteId, Graph, NodeId, NodeRef},
-    ir::BasicBlock,
-};
+use crate::graph::{ArrayId, ByteId, Graph, NodeRef};
 
 // TODO:
 // - Reuse scratch sets for ordering Byte.
@@ -274,48 +271,11 @@ impl NodeRef<'_, ByteId> {
     }
 }
 
-impl ByteId {
-    pub fn rebase(&self, bb: &mut BasicBlock, g: &mut Graph) -> ByteId {
-        match g[*self] {
-            Byte::Copy(offset) => *bb.get_or_copy(bb.offset() + offset, g),
-            Byte::Const(c) => Byte::Const(c).insert(g),
-            Byte::Input { id } => Byte::Input {
-                id: id + bb.inputs(),
-            }
-            .insert(g),
-            Byte::Add(lhs, rhs) => Byte::Add(lhs.rebase(bb, g), rhs.rebase(bb, g)).idealize(g),
-            Byte::Mul(lhs, rhs) => Byte::Mul(lhs.rebase(bb, g), rhs.rebase(bb, g)).idealize(g),
-        }
-    }
-}
-
 impl Array {
     /// Gets or inserts this node into a graph and returns its ID.
     #[inline]
     pub fn insert(self, g: &mut Graph) -> ArrayId {
         g.insert_array(self)
-    }
-}
-
-impl ArrayId {
-    pub fn rebase(&self, bb: &mut BasicBlock, g: &mut Graph) -> ArrayId {
-        let mut array = g[*self].clone();
-        for e in &mut array.elements {
-            *e = e.rebase(bb, g);
-        }
-        array.insert(g)
-    }
-}
-
-impl NodeId {
-    pub fn rebase(&self, bb: &mut BasicBlock, g: &mut Graph) -> NodeId {
-        if let Some(id) = self.as_byte_id(g) {
-            id.rebase(bb, g).as_node_id()
-        } else if let Some(id) = self.as_array_id(g) {
-            id.rebase(bb, g).as_node_id()
-        } else {
-            unreachable!();
-        }
     }
 }
 

@@ -2,8 +2,9 @@ use std::fmt::{self, Debug, Formatter, Write};
 
 use crate::{
     graph::{ArrayId, ByteId, Graph, NodeId, NodeRef},
-    ir::{BasicBlock, Condition, Effect, Ir},
+    ir::{Condition, Ir},
     node::Byte,
+    region::{Effect, Region},
 };
 
 struct PrettyPrinter<'a> {
@@ -23,7 +24,7 @@ impl<'a> PrettyPrinter<'a> {
 
     fn pretty_blocks(&mut self, blocks: &[Ir], g: &Graph, indent: usize) -> fmt::Result {
         if let [Ir::BasicBlock(bb)] = blocks {
-            self.pretty_bb(bb, g, indent)
+            self.pretty_region(bb, g, indent)
         } else if let [block] = blocks {
             self.pretty_ir(block, g, indent)
         } else {
@@ -39,7 +40,7 @@ impl<'a> PrettyPrinter<'a> {
             Ir::BasicBlock(bb) => {
                 self.indent(indent)?;
                 write!(self.w, "{{\n")?;
-                self.pretty_bb(bb, g, indent + 1)?;
+                self.pretty_region(bb, g, indent + 1)?;
                 self.indent(indent)?;
                 write!(self.w, "}}\n")
             }
@@ -58,13 +59,13 @@ impl<'a> PrettyPrinter<'a> {
         }
     }
 
-    fn pretty_bb(&mut self, bb: &BasicBlock, g: &Graph, indent: usize) -> fmt::Result {
+    fn pretty_region(&mut self, region: &Region, g: &Graph, indent: usize) -> fmt::Result {
         // Write effects and track discrepancies between them and the statistic
         // fields.
         let mut guarded_left = 0;
         let mut guarded_right = 0;
         let mut inputs = 0;
-        for effect in &bb.effects {
+        for effect in &region.effects {
             self.indent(indent)?;
             match *effect {
                 Effect::Output(value) => write!(self.w, "output {:?}", value.get(g))?,
@@ -94,36 +95,35 @@ impl<'a> PrettyPrinter<'a> {
             }
             write!(self.w, "\n")?;
         }
-        if bb.guarded_left != guarded_left
-            || bb.guarded_right != guarded_right
-            || bb.inputs != inputs
+        let memory = &region.memory;
+        if memory.guarded_left() != guarded_left
+            || memory.guarded_right() != guarded_right
+            || region.inputs != inputs
         {
             self.indent(indent)?;
             write!(self.w, "# BUG:")?;
-            if bb.guarded_left != guarded_left {
-                write!(self.w, " guarded_left={}", bb.guarded_left)?;
+            if memory.guarded_left() != guarded_left {
+                write!(self.w, " guarded_left={}", memory.guarded_left())?;
             }
-            if bb.guarded_right != guarded_right {
-                write!(self.w, " guarded_right={}", bb.guarded_right)?;
+            if memory.guarded_right() != guarded_right {
+                write!(self.w, " guarded_right={}", memory.guarded_right())?;
             }
-            if bb.inputs != inputs {
-                write!(self.w, " inputs={}", bb.inputs)?;
+            if region.inputs != inputs {
+                write!(self.w, " inputs={}", region.inputs)?;
             }
             write!(self.w, "\n")?;
         }
 
-        for (offset, &node) in (bb.min_offset()..).zip(bb.memory.iter()) {
-            if let Some(node) = node {
-                if g[node] != Byte::Copy(offset) {
-                    self.indent(indent)?;
-                    write!(self.w, "@{offset} = {:?}\n", node.get(g))?;
-                }
+        for (offset, node) in memory.iter() {
+            if g[node] != Byte::Copy(offset) {
+                self.indent(indent)?;
+                write!(self.w, "@{offset} = {:?}\n", node.get(g))?;
             }
         }
 
-        if bb.offset != 0 {
+        if memory.offset() != 0 {
             self.indent(indent)?;
-            write!(self.w, "shift {}\n", bb.offset)?;
+            write!(self.w, "shift {}\n", memory.offset())?;
         }
         Ok(())
     }
@@ -284,7 +284,7 @@ impl Ir {
     }
 }
 
-impl BasicBlock {
+impl Region {
     pub fn pretty(&self, g: &Graph) -> String {
         let mut s = String::new();
         self.write_pretty(&mut s, g).unwrap();
@@ -292,7 +292,7 @@ impl BasicBlock {
     }
 
     pub fn write_pretty(&self, w: &mut dyn Write, g: &Graph) -> fmt::Result {
-        PrettyPrinter::new(w).pretty_bb(self, g, 0)
+        PrettyPrinter::new(w).pretty_region(self, g, 0)
     }
 
     pub fn compare_pretty(&self, expect: &str, g: &Graph) -> bool {
