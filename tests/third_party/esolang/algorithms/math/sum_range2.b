@@ -2,8 +2,20 @@
 
 Attribution: User:A
 
-Puts the sum from x to y(x should be set into 1) into a.
+Puts the sum from 1 to y (inclusive) into z. x must be 1.
 
-Layout: x x2 y a]
+Layout: x y z temp0
 
-y>>[x<<[-a>>>+x2<<+x<]x2>[-x<+x2>]x<+y>>-]
+Algorithm:
+    x := 1
+    y := input
+    z := 0
+    while y != 0 {
+        z += x
+        x += 1
+        y -= 1
+    }
+    output z
+]
+
+x+y>,[x<[-z>>+temp0>+x<<<]temp0>>>[-x<<<+temp0>>>]x<<<+y>-]z>.

@@ -1,14 +1,21 @@
 {
     guard_shift 1
-    guard_shift 2
-    shift 2
+    in0 = input
+    @0 = @0 + 1
+    @1 = in0
+    shift 1
 }
 repeat @0 times {
     guard_shift -1
-    guard_shift -2
     guard_shift 1
-    @-2 = @-2 + @-1 + 1
-    @-1 = 0
+    guard_shift 2
+    @-1 = @-1 + @2 + 1
     @0 = @0 - 1
-    @1 = @-2 + @1
+    @1 = @-1 + @1
+    @2 = 0
+}
+{
+    guard_shift 1
+    output @1
+    shift 1
 }

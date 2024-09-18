@@ -2,6 +2,6 @@
 
 Attribution: User:A
 
-Puts the sum from x to y(x should be set into 1) into a.]
+Puts the sum from 1 to y (inclusive) into z. x must be 1.]
 
-y[x[-a+x2+x]x2[-x+x2]x+y-]
+x[-]+y[x[-z+temp0+x]temp0[-x+temp0]x+y-]

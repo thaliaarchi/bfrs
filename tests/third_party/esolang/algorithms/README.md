@@ -1,7 +1,7 @@
 # Brainfuck algorithms on the Esolang wiki
 
 The programs on the [Brainfuck algorithms](https://esolangs.org/wiki/Brainfuck_algorithms)
-page. These programs are current as of revision [2024-09-17 00:18:39](https://esolangs.org/w/index.php?title=Brainfuck_algorithms&oldid=139541)
+page. These programs are current as of revision [2024-09-18 04:10:13](https://esolangs.org/w/index.php?title=Brainfuck_algorithms&oldid=139691)
 and authors are credited when attributed in the text.
 
 In programs that use placeholders for shifts or constants, I have inserted
