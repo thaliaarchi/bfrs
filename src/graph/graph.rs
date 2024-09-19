@@ -24,7 +24,9 @@ use crate::{
 #[derive(Clone)]
 pub struct Graph {
     nodes: Vec<Node>,
-    table: HashTable<NodeId>,
+    /// A table for deduplicating nodes. The key is the 0-based index of the
+    /// node in `nodes`.
+    table: HashTable<u32>,
     hash_builder: DefaultHashBuilder,
     #[cfg(debug_assertions)]
     graph_id: u32,
@@ -33,7 +35,11 @@ pub struct Graph {
 /// The ID of a node in a graph.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct NodeId {
+    /// The 1-based ID of the node, i.e., the index plus 1.
     node_id: NonZeroU32,
+    /// The ID of the graph which contains the node, used for ensuring a
+    /// `NodeId` is not used with a different graph when debug assertions are
+    /// enabled.
     #[cfg(debug_assertions)]
     graph_id: u32,
 }
@@ -82,48 +88,61 @@ impl Graph {
 
     /// Inserts a node without deduplicating and returns its ID.
     fn insert(&mut self, node: Node) -> NodeId {
-        self.nodes.push(node);
-        NodeId::new(
+        let id = NodeId::new(
             self.nodes.len(),
             #[cfg(debug_assertions)]
             self.graph_id,
-        )
+        );
+        self.nodes.push(node);
+        id
     }
 
     /// Gets or inserts a node and returns its ID.
     fn get_or_insert(&mut self, node: Node) -> NodeId {
         let hash = self.hash_builder.hash_one(&node);
-        let eq = |id: &NodeId| {
-            let key = unsafe { self.nodes.get_unchecked(id.as_usize()) };
+        let eq = |&index: &u32| {
+            let key = unsafe { self.nodes.get_unchecked(index as usize) };
             &node == key
         };
-        let hasher = |id: &NodeId| {
-            let key = unsafe { self.nodes.get_unchecked(id.as_usize()) };
+        let hasher = |&index: &u32| {
+            let key = unsafe { self.nodes.get_unchecked(index as usize) };
             self.hash_builder.hash_one(key)
         };
-        *self
+        let index = *self
             .table
             .entry(hash, eq, hasher)
             .or_insert_with(|| {
-                self.nodes.push(node);
-                NodeId::new(
-                    self.nodes.len(),
+                let index = self.nodes.len();
+                let _ = NodeId::new(
+                    index,
                     #[cfg(debug_assertions)]
                     self.graph_id,
-                )
+                );
+                self.nodes.push(node);
+                index as u32
             })
-            .get()
+            .get();
+        NodeId::new_unchecked(
+            index,
+            #[cfg(debug_assertions)]
+            self.graph_id,
+        )
     }
 
     /// Gets the ID of a node.
     pub fn find(&self, node: &Node) -> Option<NodeId> {
         self.assert_node(&node);
         let hash = self.hash_builder.hash_one(&node);
-        let eq = |id: &NodeId| {
-            let key = unsafe { self.nodes.get_unchecked(id.as_usize()) };
+        let eq = |&index: &u32| {
+            let key = unsafe { self.nodes.get_unchecked(index as usize) };
             node == key
         };
-        Some(*self.table.find(hash, eq)?)
+        let index = *self.table.find(hash, eq)?;
+        Some(NodeId::new_unchecked(
+            index,
+            #[cfg(debug_assertions)]
+            self.graph_id,
+        ))
     }
 
     /// Gets a reference to the identified node.
@@ -215,22 +234,35 @@ impl Default for Graph {
 }
 
 impl NodeId {
+    #[inline]
+    fn new(index: usize, #[cfg(debug_assertions)] graph_id: u32) -> Self {
+        if let Some(node_id) = u32::try_from(index)
+            .ok()
+            .and_then(|index| index.checked_add(1))
+        {
+            NodeId {
+                node_id: unsafe { NonZeroU32::new_unchecked(node_id) },
+                #[cfg(debug_assertions)]
+                graph_id,
+            }
+        } else {
+            #[inline(never)]
+            #[cold]
+            fn graph_overflow() -> ! {
+                panic!("graph too large for u32 index");
+            }
+            graph_overflow();
+        }
+    }
+
     #[cfg(debug_assertions)]
-    fn new(node_id: usize, graph_id: u32) -> Self {
-        let Ok(node_id) = u32::try_from(node_id) else {
-            Self::graph_overflow();
-        };
-        let node_id = NonZeroU32::try_from(node_id).unwrap();
-        NodeId { node_id, graph_id }
+    fn new_unchecked(index: u32, graph_id: u32) -> Self {
+        Self::new(usize::try_from(index).unwrap(), graph_id)
     }
 
     #[cfg(not(debug_assertions))]
-    #[inline]
-    fn new(node_id: usize) -> Self {
-        let Ok(node_id) = u32::try_from(node_id) else {
-            Self::graph_overflow();
-        };
-        let node_id = unsafe { NonZeroU32::new_unchecked(node_id) };
+    fn new_unchecked(index: u32) -> Self {
+        let node_id = unsafe { NonZeroU32::new_unchecked(index + 1) };
         NodeId { node_id }
     }
 
@@ -243,12 +275,6 @@ impl NodeId {
     /// Gets a reference to this node.
     pub fn get<'g>(&self, g: &'g Graph) -> NodeRef<'g, NodeId> {
         g.get(*self)
-    }
-
-    #[inline(never)]
-    #[cold]
-    fn graph_overflow() -> ! {
-        panic!("graph too large for u32 index");
     }
 }
 
