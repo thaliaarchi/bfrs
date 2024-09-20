@@ -1,3 +1,4 @@
+pub mod arena;
 mod graph;
 mod index;
 

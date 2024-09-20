@@ -21,7 +21,6 @@ use crate::{
 ///
 /// It is undefined behavior to use a `NodeId` in any graph other than the one
 /// which created it.
-#[derive(Clone)]
 pub struct Graph {
     nodes: Vec<Node>,
     /// A table for deduplicating nodes. The key is the 0-based index of the
