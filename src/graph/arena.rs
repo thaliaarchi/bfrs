@@ -71,11 +71,20 @@ impl<T> Arena<T> {
         self.values().get_unchecked(index)
     }
 
-    #[allow(dead_code)]
     #[inline(always)]
     pub(super) unsafe fn get_unchecked_mut(&self, index: u32) -> &mut T {
         self.values().get_unchecked_mut(index)
     }
+
+    #[cfg(debug_assertions)]
+    pub(super) fn assert_id(&self, id: Id<T>) {
+        debug_assert!(id.arena_id == self.arena_id, "ID used in another arena");
+        debug_assert!(id.value_id.get() <= self.values().len, "ID out of bounds");
+    }
+
+    #[cfg(not(debug_assertions))]
+    #[inline(always)]
+    pub(super) fn assert_id(&self, _id: Id<T>) {}
 
     /// Returns the number of values in this arena.
     #[inline]
@@ -104,29 +113,17 @@ impl<T> Index<Id<T>> for Arena<T> {
     type Output = T;
 
     #[inline]
-    fn index(&self, index: Id<T>) -> &Self::Output {
-        let values = self.values();
-        #[cfg(debug_assertions)]
-        debug_assert!(
-            index.arena_id == self.arena_id,
-            "index used in different arena",
-        );
-        debug_assert!(index.value_id.get() <= values.len, "index out of bounds");
-        unsafe { values.get_unchecked(index.value_id.get() - 1) }
+    fn index(&self, id: Id<T>) -> &Self::Output {
+        self.assert_id(id);
+        unsafe { self.values().get_unchecked(id.value_id.get() - 1) }
     }
 }
 
 impl<T> IndexMut<Id<T>> for Arena<T> {
     #[inline]
-    fn index_mut(&mut self, index: Id<T>) -> &mut Self::Output {
-        let values = self.values();
-        #[cfg(debug_assertions)]
-        debug_assert!(
-            index.arena_id == self.arena_id,
-            "index used in different arena",
-        );
-        debug_assert!(index.value_id.get() <= values.len, "index out of bounds");
-        unsafe { values.get_unchecked_mut(index.value_id.get() - 1) }
+    fn index_mut(&mut self, id: Id<T>) -> &mut Self::Output {
+        self.assert_id(id);
+        unsafe { self.values().get_unchecked_mut(id.value_id.get() - 1) }
     }
 }
 
