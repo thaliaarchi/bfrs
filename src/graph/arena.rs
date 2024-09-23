@@ -57,8 +57,7 @@ impl<T> Arena<T> {
 
     #[inline]
     pub fn push(&self, value: T) -> Id<T> {
-        let values = unsafe { &mut *self.values.get() };
-        let value_id = values.push(value);
+        let value_id = self.values().push(value);
         Id {
             value_id,
             #[cfg(debug_assertions)]
@@ -67,11 +66,21 @@ impl<T> Arena<T> {
         }
     }
 
+    #[inline(always)]
+    pub(super) unsafe fn get_unchecked(&self, index: u32) -> &T {
+        self.values().get_unchecked(index)
+    }
+
+    #[allow(dead_code)]
+    #[inline(always)]
+    pub(super) unsafe fn get_unchecked_mut(&self, index: u32) -> &mut T {
+        self.values().get_unchecked_mut(index)
+    }
+
     /// Returns the number of values in this arena.
     #[inline]
     pub fn len(&self) -> usize {
-        let values = unsafe { &*self.values.get() };
-        values.len.try_into().unwrap_or(usize::MAX)
+        self.values().len.try_into().unwrap_or(usize::MAX)
     }
 
     /// Returns whether this arena contains no values.
@@ -81,16 +90,22 @@ impl<T> Arena<T> {
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &T> {
-        let values = unsafe { &*self.values.get() };
-        values.data.iter().flatten()
+        self.values().data.iter().flatten()
+    }
+
+    fn values(&self) -> &mut StableVec<T> {
+        // SAFETY: `Arena<T>` is `!Sync` and values remain at stable addresses
+        // once pushed.
+        unsafe { &mut *self.values.get() }
     }
 }
 
 impl<T> Index<Id<T>> for Arena<T> {
     type Output = T;
 
+    #[inline]
     fn index(&self, index: Id<T>) -> &Self::Output {
-        let values = unsafe { &*self.values.get() };
+        let values = self.values();
         #[cfg(debug_assertions)]
         debug_assert!(
             index.arena_id == self.arena_id,
@@ -102,8 +117,9 @@ impl<T> Index<Id<T>> for Arena<T> {
 }
 
 impl<T> IndexMut<Id<T>> for Arena<T> {
+    #[inline]
     fn index_mut(&mut self, index: Id<T>) -> &mut Self::Output {
-        let values = unsafe { &mut *self.values.get() };
+        let values = self.values();
         #[cfg(debug_assertions)]
         debug_assert!(
             index.arena_id == self.arena_id,
@@ -194,10 +210,31 @@ impl<T> StableVec<T> {
 }
 
 impl<T> Id<T> {
+    #[inline]
+    pub(super) fn from_index(index: u32, _arena: &Arena<T>) -> Self {
+        Id {
+            value_id: unsafe { NonZero::new_unchecked(index + 1) },
+            #[cfg(debug_assertions)]
+            arena_id: _arena.arena_id,
+            ty: PhantomData,
+        }
+    }
+
     /// Returns the 0-based index of this ID.
     #[inline]
-    pub fn as_usize(&self) -> usize {
-        self.value_id.get() as usize - 1
+    pub fn index(self) -> u32 {
+        self.value_id.get() - 1
+    }
+
+    /// Sets the type of the identified value.
+    #[inline]
+    pub(super) unsafe fn transmute<U>(self) -> Id<U> {
+        Id {
+            value_id: self.value_id,
+            #[cfg(debug_assertions)]
+            arena_id: self.arena_id,
+            ty: PhantomData,
+        }
     }
 }
 
@@ -221,11 +258,11 @@ impl<T> Debug for Id<T> {
         if f.alternate() {
             return f
                 .debug_struct("Id")
-                .field("index", &self.as_usize())
+                .field("index", &self.index())
                 .field("arena_id", &self.arena_id)
                 .finish();
         }
-        f.debug_tuple("Id").field(&self.as_usize()).finish()
+        f.debug_tuple("Id").field(&self.index()).finish()
     }
 }
 
