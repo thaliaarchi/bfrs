@@ -251,15 +251,7 @@ impl<T> Copy for Id<T> {}
 
 impl<T> Debug for Id<T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        #[cfg(debug_assertions)]
-        if f.alternate() {
-            return f
-                .debug_struct("Id")
-                .field("index", &self.index())
-                .field("arena_id", &self.arena_id)
-                .finish();
-        }
-        f.debug_tuple("Id").field(&self.index()).finish()
+        write!(f, "%{}", self.index())
     }
 }
 

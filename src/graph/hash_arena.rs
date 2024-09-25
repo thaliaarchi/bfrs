@@ -5,6 +5,7 @@ use std::{
     fmt::{self, Debug, Formatter},
     hash::{BuildHasher, Hash},
     ops::{Deref, DerefMut},
+    ptr,
 };
 
 use hashbrown::{
@@ -112,6 +113,12 @@ impl<T: Eq + Hash> HashArena<T> {
         }
     }
 
+    /// Gets a reference to the identified node, without checking that it is
+    /// not immutably borrowed.
+    pub unsafe fn get_unchecked(&self, id: Id<T>) -> &T {
+        unsafe { &*self.arena_entry(id).0.as_ptr() }
+    }
+
     #[inline]
     fn arena_entry(&self, id: Id<T>) -> (&RefCell<T>, bool) {
         let mut index = id.index();
@@ -168,6 +175,12 @@ impl<T: Eq + Hash> HashArena<T> {
         table.find_entry(hash, eq).ok()
     }
 
+    #[cfg(debug_assertions)]
+    #[inline(always)]
+    pub(super) fn assert_id(&self, id: Id<T>) {
+        self.arena.assert_id(unsafe { id.transmute() });
+    }
+
     /// Returns the number of values in this arena.
     #[inline]
     pub fn len(&self) -> usize {
@@ -211,6 +224,10 @@ impl<T> Entry<T> {
 }
 
 impl<'a, T: Eq + Hash> ArenaRef<'a, T> {
+    pub fn value(&self) -> &T {
+        &self.value
+    }
+
     pub fn arena(&self) -> &'a HashArena<T> {
         self.arena
     }
@@ -233,7 +250,23 @@ impl<T: Eq + Hash> Deref for ArenaRef<'_, T> {
     }
 }
 
+impl<T: Eq + Hash> PartialEq for ArenaRef<'_, T> {
+    fn eq(&self, other: &Self) -> bool {
+        *self.value == *other.value && ptr::eq(self.arena, other.arena)
+    }
+}
+
+impl<T: Eq + Hash> Eq for ArenaRef<'_, T> {}
+
 impl<'a, T: Eq + Hash> ArenaRefMut<'a, T> {
+    pub fn value(&self) -> &T {
+        &*self.value
+    }
+
+    pub fn value_mut(&mut self) -> &mut T {
+        &mut *self.value
+    }
+
     pub fn arena(&self) -> &'a HashArena<T> {
         self.arena
     }

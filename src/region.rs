@@ -1,5 +1,3 @@
-use std::fmt::{self, Debug, Formatter};
-
 use crate::{
     graph::{Graph, NodeId},
     memory::{Memory, MemoryBuilder},
@@ -20,7 +18,7 @@ pub struct Region {
 }
 
 /// An observable effect.
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Effect {
     /// Printing a value. The node is a byte or an array.
     Output(NodeId),
@@ -32,7 +30,7 @@ pub enum Effect {
 
 impl Region {
     /// Constructs a region from non-branching instructions.
-    pub fn from_basic_block(insts: &[Ast], memory: &mut MemoryBuilder, g: &mut Graph) -> Self {
+    pub fn from_basic_block(insts: &[Ast], memory: &mut MemoryBuilder, g: &Graph) -> Self {
         memory.reset();
         let mut effects = Vec::new();
         let mut inputs = 0;
@@ -68,7 +66,7 @@ impl Region {
 
     /// Concatenates two regions. Applies the operations of `other` to
     /// `self` and modifies `other`.
-    pub fn concat(&mut self, other: &mut Self, g: &mut Graph) {
+    pub fn concat(&mut self, other: &mut Self, g: &Graph) {
         self.effects.reserve(other.effects.len());
         for effect in &other.effects {
             let mut effect = effect.clone();
@@ -77,7 +75,7 @@ impl Region {
                     *value = self.rebase(*value, g);
                 }
                 Effect::Input(value) => {
-                    let Node::Input { id } = g[*value] else {
+                    let Node::Input { id } = *g.get(*value) else {
                         panic!("invalid node in input");
                     };
                     *value = Node::Input {
@@ -105,8 +103,8 @@ impl Region {
 
     /// Replaces `Copy` and `Input` nodes in the node to be relative to this
     /// region.
-    fn rebase(&mut self, node: NodeId, g: &mut Graph) -> NodeId {
-        match g[node] {
+    fn rebase(&mut self, node: NodeId, g: &Graph) -> NodeId {
+        match *g.get(node) {
             Node::Copy(offset) => self.memory.compute_cell(self.memory.offset() + offset, g),
             Node::Const(_) => node,
             Node::Input { id } => Node::Input {
@@ -140,7 +138,7 @@ impl Region {
     }
 
     /// Joins adjacent output effects into a single output of an array.
-    pub fn join_outputs(&mut self, g: &mut Graph) {
+    pub fn join_outputs(&mut self, g: &Graph) {
         let mut i = 0;
         while i + 1 < self.effects.len() {
             if let Effect::Output(v1) = self.effects[i] {
@@ -150,7 +148,7 @@ impl Region {
                     .map(|n| i + 1 + n)
                     .unwrap_or(self.effects.len());
                 if j - i > 1 {
-                    let mut elements = match &g[v1] {
+                    let mut elements = match &*g.get(v1) {
                         Node::Array(elements) => elements.clone(),
                         _ => vec![v1],
                     };
@@ -158,7 +156,7 @@ impl Region {
                         let Effect::Output(v) = output else {
                             unreachable!();
                         };
-                        match &g[v] {
+                        match &*g.get(v) {
                             Node::Array(other) => elements.extend_from_slice(&other),
                             _ => elements.push(v),
                         }
@@ -167,16 +165,6 @@ impl Region {
                 }
             }
             i += 1;
-        }
-    }
-}
-
-impl Debug for Effect {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        match self {
-            Effect::Output(v) => write!(f, "output {v:?}"),
-            Effect::Input(v) => write!(f, "input {v:?}"),
-            Effect::GuardShift(offset) => write!(f, "guard_shift {offset}"),
         }
     }
 }

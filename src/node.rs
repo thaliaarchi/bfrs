@@ -1,12 +1,12 @@
 use std::{cmp::Ordering, collections::BTreeSet, isize, mem, usize};
 
-use crate::graph::{Graph, NodeId, NodeRef};
+use crate::graph::{hash_arena::ArenaRef, Graph, NodeId};
 
 // TODO:
 // - Reuse scratch sets for ordering Byte.
 
 /// A node in a graph.
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Node {
     // Byte values.
     /// Copy the byte from the cell at the offset.
@@ -34,20 +34,23 @@ pub enum NodeType {
 impl Node {
     /// Inserts this node into the graph and transforms it to its ideal
     /// representation.
-    pub fn idealize(self, g: &mut Graph) -> NodeId {
+    pub fn idealize(self, g: &Graph) -> NodeId {
         match self {
             Node::Add(mut lhs, mut rhs) => {
-                if let Node::Add(b, c) = g[rhs] {
-                    if let Node::Add(..) = g[lhs] {
+                let (mut lhs_ref, mut rhs_ref) = (g.get(lhs), g.get(rhs));
+                if let Node::Add(b, c) = *rhs_ref {
+                    if let Node::Add(..) = *lhs_ref {
                         return Node::Add(Node::Add(lhs, b).idealize(g), c).idealize(g);
                     }
                     mem::swap(&mut lhs, &mut rhs);
+                    mem::swap(&mut lhs_ref, &mut rhs_ref);
                 }
-                let (tail, head) = match g[lhs] {
+                let (tail, head) = match *lhs_ref {
                     Node::Add(a, b) => (Some(a), b),
                     _ => (None, lhs),
                 };
-                let (res, idealize) = match (&g[head], &g[rhs]) {
+                let head_ref = g.get(head);
+                let (res, idealize) = match (&*head_ref, &*rhs_ref) {
                     (&Node::Const(a), &Node::Const(b)) => {
                         (Node::Const(a.wrapping_add(b)).insert(g), true)
                     }
@@ -71,7 +74,7 @@ impl Node {
                         let n = Node::Add(c, Node::Const(1).insert(g)).idealize(g);
                         (Node::Mul(b, n).idealize(g), true)
                     }
-                    _ if head.get(g).cmp_by_variable_order(rhs.get(g)).is_gt() => {
+                    _ if head_ref.cmp_by_variable_order(&rhs_ref).is_gt() => {
                         if let Some(tail) = tail {
                             return Node::Add(Node::Add(tail, rhs).idealize(g), head).idealize(g);
                         } else {
@@ -93,17 +96,20 @@ impl Node {
                 }
             }
             Node::Mul(mut lhs, mut rhs) => {
-                if let Node::Mul(b, c) = g[rhs] {
-                    if let Node::Mul(..) = g[lhs] {
+                let (mut lhs_ref, mut rhs_ref) = (g.get(lhs), g.get(rhs));
+                if let Node::Mul(b, c) = *rhs_ref {
+                    if let Node::Mul(..) = *lhs_ref {
                         return Node::Mul(Node::Mul(lhs, b).idealize(g), c).idealize(g);
                     }
                     mem::swap(&mut lhs, &mut rhs);
+                    mem::swap(&mut lhs_ref, &mut rhs_ref);
                 }
-                let (tail, head) = match g[lhs] {
+                let (tail, head) = match *lhs_ref {
                     Node::Mul(a, b) => (Some(a), b),
                     _ => (None, lhs),
                 };
-                let (res, idealize) = match (&g[head], &g[rhs]) {
+                let head_ref = g.get(head);
+                let (res, idealize) = match (&*head_ref, &*rhs_ref) {
                     (&Node::Const(a), &Node::Const(b)) => {
                         (Node::Const(a.wrapping_mul(b)).insert(g), true)
                     }
@@ -117,7 +123,7 @@ impl Node {
                             return Node::Mul(rhs, head).insert(g);
                         }
                     }
-                    _ if head.get(g).cmp_by_variable_order(rhs.get(g)).is_gt() => {
+                    _ if head_ref.cmp_by_variable_order(&rhs_ref).is_gt() => {
                         if let Some(tail) = tail {
                             return Node::Mul(Node::Mul(tail, rhs).idealize(g), head).idealize(g);
                         } else {
@@ -142,12 +148,6 @@ impl Node {
         }
     }
 
-    /// Gets or inserts this node into a graph and returns its ID.
-    #[inline]
-    pub fn insert(self, g: &mut Graph) -> NodeId {
-        g.insert(self)
-    }
-
     pub fn ty(&self) -> NodeType {
         match self {
             Node::Copy(_) | Node::Const(_) | Node::Input { .. } | Node::Add(..) | Node::Mul(..) => {
@@ -158,10 +158,10 @@ impl Node {
     }
 }
 
-impl NodeRef<'_, NodeId> {
+impl ArenaRef<'_, Node> {
     /// Returns whether this node references a cell besides at the given offset.
     pub fn references_other(&self, offset: isize) -> bool {
-        match *self.node() {
+        match *self.value() {
             Node::Copy(offset2) => offset2 != offset,
             Node::Const(_) | Node::Input { .. } => false,
             Node::Add(lhs, rhs) | Node::Mul(lhs, rhs) => {
@@ -176,8 +176,8 @@ impl NodeRef<'_, NodeId> {
 
     /// Orders two `Node` nodes by variable ordering, i.e., the contained `Copy`
     /// offsets and `Input` IDs.
-    pub fn cmp_by_variable_order(&self, other: Self) -> Ordering {
-        match (self.node(), other.node()) {
+    pub fn cmp_by_variable_order(&self, other: &Self) -> Ordering {
+        match (self.value(), other.value()) {
             (Node::Const(a), Node::Const(b)) => a.cmp(b),
             (_, Node::Const(_)) => Ordering::Less,
             (Node::Const(_), _) => Ordering::Greater,
@@ -233,7 +233,7 @@ impl NodeRef<'_, NodeId> {
     }
 
     fn min_terms_(&self, min_offset: &mut isize, min_input: &mut usize) {
-        match *self.node() {
+        match *self.value() {
             Node::Copy(offset) => {
                 debug_assert!(offset != isize::MAX);
                 *min_offset = offset.min(*min_offset);
@@ -260,7 +260,7 @@ impl NodeRef<'_, NodeId> {
     }
 
     fn offsets(&self, offsets: &mut BTreeSet<isize>) {
-        match *self.node() {
+        match *self.value() {
             Node::Copy(offset) => {
                 offsets.insert(offset);
             }
@@ -278,7 +278,7 @@ impl NodeRef<'_, NodeId> {
     }
 
     fn inputs(&self, inputs: &mut BTreeSet<usize>) {
-        match *self.node() {
+        match *self.value() {
             Node::Copy(_) | Node::Const(_) => {}
             Node::Input { id } => {
                 inputs.insert(id);
@@ -302,15 +302,15 @@ mod tests {
 
     #[test]
     fn idealize_add() {
-        let g = &mut Graph::new();
-        let x = Node::Copy(0).idealize(g);
-        let y = Node::Copy(2).idealize(g);
+        let g = Graph::new();
+        let x = Node::Copy(0).idealize(&g);
+        let y = Node::Copy(2).idealize(&g);
         let add = Node::Add(
-            Node::Add(x, Node::Const(1).idealize(g)).idealize(g),
-            Node::Add(y, Node::Const(3).idealize(g)).idealize(g),
+            Node::Add(x, Node::Const(1).idealize(&g)).idealize(&g),
+            Node::Add(y, Node::Const(3).idealize(&g)).idealize(&g),
         )
-        .idealize(g);
-        let expected = Node::Add(Node::Add(x, y).insert(g), Node::Const(4).insert(g)).insert(g);
+        .idealize(&g);
+        let expected = Node::Add(Node::Add(x, y).insert(&g), Node::Const(4).insert(&g)).insert(&g);
         assert_eq!(g.get(add), g.get(expected));
     }
 }

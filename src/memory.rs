@@ -53,7 +53,7 @@ impl Memory {
 
     /// Gets the value at the offset, forcing a `Copy` if this cell had not been
     /// modified.
-    pub fn compute_cell(&mut self, offset: isize, g: &mut Graph) -> NodeId {
+    pub fn compute_cell(&mut self, offset: isize, g: &Graph) -> NodeId {
         self.reserve(offset, offset + 1);
         let i = (offset - self.min_offset) as usize;
         match &mut self.memory[i] {
@@ -192,7 +192,7 @@ impl MemoryBuilder {
     }
 
     /// Gets the value at the cell pointer, forcing construction of its nodes.
-    pub fn compute_cell(&mut self, g: &mut Graph) -> NodeId {
+    pub fn compute_cell(&mut self, g: &Graph) -> NodeId {
         let (base, addend) = *self.get_cell_parts();
         let base = base.unwrap_or_else(|| Node::Copy(self.offset).insert(g));
         if addend != 0 {
@@ -258,7 +258,7 @@ impl MemoryBuilder {
     }
 
     /// Builds the `Memory`, forcing construction of the used nodes.
-    pub fn finish(&mut self, g: &mut Graph) -> Memory {
+    pub fn finish(&mut self, g: &Graph) -> Memory {
         let mut memory = VecDeque::with_capacity(self.memory.len());
         for (&(base, addend), offset) in self.memory.iter().zip(self.min_offset..) {
             let base = match base {

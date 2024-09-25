@@ -1,7 +1,7 @@
 use std::fmt::{self, Debug, Formatter, Write};
 
 use crate::{
-    graph::{Graph, NodeId, NodeRef},
+    graph::{hash_arena::ArenaRef, Graph},
     ir::{Cfg, Condition, Ir},
     node::Node,
     region::{Effect, Region},
@@ -46,10 +46,10 @@ impl<'a> PrettyPrinter<'a> {
             }
             Cfg::Loop { condition, body } => {
                 self.indent(indent)?;
-                match condition {
+                match *condition {
                     Condition::WhileNonZero => write!(self.w, "while @0 != 0")?,
                     Condition::IfNonZero => write!(self.w, "if @0 != 0")?,
-                    Condition::Count(count) => write!(self.w, "repeat {:?} times", count.get(g))?,
+                    Condition::Count(count) => write!(self.w, "repeat {:?} times", g.get(count))?,
                 }
                 write!(self.w, " {{\n")?;
                 self.pretty_blocks(body, g, indent + 1)?;
@@ -68,10 +68,13 @@ impl<'a> PrettyPrinter<'a> {
         for effect in &region.effects {
             self.indent(indent)?;
             match *effect {
-                Effect::Output(value) => write!(self.w, "output {:?}", value.get(g))?,
+                Effect::Output(value) => {
+                    write!(self.w, "output {:?}", g.get(value))?;
+                }
                 Effect::Input(value) => {
-                    write!(self.w, "{:?} = input", value.get(g))?;
-                    if let Node::Input { id } = g[value] {
+                    let value = g.get(value);
+                    write!(self.w, "{:?} = input", value)?;
+                    if let Node::Input { id } = *value {
                         if id != inputs {
                             write!(self.w, " # BUG: unordered")?;
                         }
@@ -115,9 +118,10 @@ impl<'a> PrettyPrinter<'a> {
         }
 
         for (offset, node) in memory.iter() {
-            if g[node] != Node::Copy(offset) {
+            let node = g.get(node);
+            if *node != Node::Copy(offset) {
                 self.indent(indent)?;
-                write!(self.w, "@{offset} = {:?}\n", node.get(g))?;
+                write!(self.w, "@{offset} = {:?}\n", node)?;
             }
         }
 
@@ -138,31 +142,9 @@ impl<'a> PrettyPrinter<'a> {
     }
 }
 
-impl Debug for Node {
+impl Debug for ArenaRef<'_, Node> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        match *self {
-            Node::Copy(offset) => write!(f, "copy {offset}"),
-            Node::Const(c) => write!(f, "const {}", c as i8),
-            Node::Input { id } => write!(f, "input {id}"),
-            Node::Add(lhs, rhs) => write!(f, "add {lhs:?} {rhs:?}"),
-            Node::Mul(lhs, rhs) => write!(f, "mul {lhs:?} {rhs:?}"),
-            Node::Array(ref elements) => {
-                write!(f, "array ")?;
-                f.debug_list().entries(elements).finish()
-            }
-        }
-    }
-}
-
-impl Debug for NodeId {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "%{}", self.as_usize())
-    }
-}
-
-impl Debug for NodeRef<'_, NodeId> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        fn group(f: &mut Formatter<'_>, node: NodeRef<'_, NodeId>, grouped: bool) -> fmt::Result {
+        fn group(f: &mut Formatter<'_>, grouped: bool, node: ArenaRef<'_, Node>) -> fmt::Result {
             if grouped {
                 write!(f, "({node:?})")
             } else {
@@ -170,28 +152,26 @@ impl Debug for NodeRef<'_, NodeId> {
             }
         }
         let g = self.graph();
-        match *self.node() {
+        match *self.value() {
             Node::Copy(offset) => write!(f, "@{offset}"),
             Node::Const(value) => write!(f, "{}", value as i8),
             Node::Input { id } => write!(f, "in{id}"),
             Node::Add(lhs, rhs) => {
-                write!(f, "{:?}", &g.get(lhs))?;
-                if let &Node::Const(rhs) = g.get(rhs).node() {
+                let (lhs, rhs) = (g.get(lhs), g.get(rhs));
+                write!(f, "{:?}", lhs)?;
+                if let Node::Const(rhs) = *rhs {
                     if (rhs as i8) < 0 {
                         return write!(f, " - {}", (rhs as i8).unsigned_abs());
                     }
                 }
                 write!(f, " + ")?;
-                group(f, g.get(rhs), matches!(g[rhs], Node::Add(..)))
+                group(f, matches!(*rhs, Node::Add(..)), rhs)
             }
             Node::Mul(lhs, rhs) => {
-                group(f, g.get(lhs), matches!(g[lhs], Node::Add(..)))?;
+                let (lhs, rhs) = (g.get(lhs), g.get(rhs));
+                group(f, matches!(*lhs, Node::Add(..)), lhs)?;
                 write!(f, " * ")?;
-                group(
-                    f,
-                    g.get(rhs),
-                    matches!(g[rhs], Node::Add(..) | Node::Mul(..)),
-                )
+                group(f, matches!(*rhs, Node::Add(..) | Node::Mul(..)), rhs)
             }
             Node::Array(ref elements) => {
                 fn write_char(w: &mut dyn Write, ch: u8) -> fmt::Result {
@@ -205,10 +185,13 @@ impl Debug for NodeRef<'_, NodeId> {
                         _ => write!(w, "\\x{ch:02x}"),
                     }
                 }
-                if elements.iter().all(|&e| matches!(g[e], Node::Const(_))) {
+                if elements
+                    .iter()
+                    .all(|&e| matches!(*g.get(e), Node::Const(_)))
+                {
                     write!(f, "\"")?;
                     for &e in elements {
-                        let Node::Const(ch) = g[e] else {
+                        let Node::Const(ch) = *g.get(e) else {
                             unreachable!();
                         };
                         write_char(f, ch)?;
@@ -220,12 +203,13 @@ impl Debug for NodeRef<'_, NodeId> {
                         if i != 0 {
                             write!(f, ", ")?;
                         }
-                        if let Node::Const(ch) = g[e] {
+                        let e = g.get(e);
+                        if let Node::Const(ch) = *e {
                             write!(f, "'")?;
                             write_char(f, ch)?;
                             write!(f, "'")?;
                         } else {
-                            write!(f, "{:?}", g.get(e))?;
+                            write!(f, "{:?}", e)?;
                         }
                     }
                     write!(f, "]")

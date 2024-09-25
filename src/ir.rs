@@ -48,13 +48,13 @@ pub enum Condition {
 }
 
 impl Ir {
-    pub fn lower(ast: &[Ast], g: &mut Graph) -> Self {
+    pub fn lower(ast: &[Ast], g: &Graph) -> Self {
         Ir {
             blocks: Ir::lower_blocks(ast, g),
         }
     }
 
-    fn lower_blocks(mut ast: &[Ast], g: &mut Graph) -> Vec<Cfg> {
+    fn lower_blocks(mut ast: &[Ast], g: &Graph) -> Vec<Cfg> {
         let mut memory = MemoryBuilder::new();
         let mut ir = vec![];
         while let Some((inst, rest)) = ast.split_first() {
@@ -81,7 +81,7 @@ impl Ir {
         ir
     }
 
-    pub fn optimize(&mut self, g: &mut Graph) {
+    pub fn optimize(&mut self, g: &Graph) {
         let first_non_loop = self
             .blocks
             .iter()
@@ -91,7 +91,7 @@ impl Ir {
         Self::optimize_blocks(&mut self.blocks, g);
     }
 
-    fn optimize_blocks(ir: &mut Vec<Cfg>, g: &mut Graph) {
+    fn optimize_blocks(ir: &mut Vec<Cfg>, g: &Graph) {
         ir.dedup_by(|block2, block1| match (block1, block2) {
             (
                 Cfg::Loop {
@@ -120,7 +120,7 @@ impl Ir {
 
 impl Cfg {
     /// Optimizes decrement loops and if-style loops.
-    pub fn optimize(&mut self, g: &mut Graph) {
+    pub fn optimize(&mut self, g: &Graph) {
         if let Cfg::BasicBlock(bb) = self {
             bb.join_outputs(g);
         } else if let Cfg::Loop { condition, body } = self {
@@ -128,14 +128,17 @@ impl Cfg {
             if let [Cfg::BasicBlock(bb)] = body.as_mut_slice() {
                 if bb.memory.offset() == 0 {
                     if let Some(current) = bb.memory.get_cell(0) {
-                        if let Node::Add(lhs, rhs) = g[current] {
-                            if let (Node::Copy(0), &Node::Const(rhs)) = (&g[lhs], &g[rhs]) {
+                        let current_ref = g.get(current);
+                        if let Node::Add(lhs, rhs) = *current_ref {
+                            let (lhs_ref, rhs_ref) = (g.get(lhs), g.get(rhs));
+                            if let (Node::Copy(0), &Node::Const(rhs)) = (&*lhs_ref, &*rhs_ref) {
                                 if let Some(iterations) = mod_inverse(rhs.wrapping_neg()) {
                                     let addend = Node::Mul(lhs, Node::Const(iterations).insert(g))
                                         .idealize(g);
                                     if !bb.memory.iter().any(|(offset, cell)| {
-                                        cell.get(g).references_other(offset)
-                                            || matches!(g[cell], Node::Input { .. } | Node::Mul(..))
+                                        let cell = g.get(cell);
+                                        cell.references_other(offset)
+                                            || matches!(*cell, Node::Input { .. } | Node::Mul(..))
                                     }) {
                                         if bb
                                             .effects
@@ -145,7 +148,8 @@ impl Cfg {
                                             *bb.memory.get_cell_mut(0) =
                                                 Some(Node::Const(0).insert(g));
                                             for (_, cell) in bb.memory.iter_mut() {
-                                                if let Node::Add(lhs, rhs) = g[*cell] {
+                                                let cell_ref = g.get(*cell);
+                                                if let Node::Add(lhs, rhs) = *cell_ref {
                                                     *cell = Node::Add(
                                                         lhs,
                                                         Node::Mul(rhs, addend).idealize(g),
@@ -171,7 +175,8 @@ impl Cfg {
                 match block {
                     Cfg::BasicBlock(bb) => {
                         if let Some(v) = bb.memory.get_cell(bb.memory.offset()) {
-                            match g[v] {
+                            let v = g.get(v);
+                            match *v {
                                 Node::Const(0) => {
                                     guaranteed_zero = true;
                                     break;
@@ -280,10 +285,10 @@ mod tests {
 
     #[test]
     fn concat() {
-        let g = &mut Graph::new();
+        let g = Graph::new();
 
         let src1 = "<+>,-.>";
-        let ir1 = Ir::lower(&Ast::parse(src1.as_bytes()).unwrap(), g);
+        let ir1 = Ir::lower(&Ast::parse(src1.as_bytes()).unwrap(), &g);
         let expect1 = "
             guard_shift -1
             in0 = input
@@ -296,7 +301,7 @@ mod tests {
         assert!(ir1.compare_pretty(expect1, &g));
 
         let src2 = ",<-";
-        let ir2 = Ir::lower(&Ast::parse(src2.as_bytes()).unwrap(), g);
+        let ir2 = Ir::lower(&Ast::parse(src2.as_bytes()).unwrap(), &g);
         let expect2 = "
             in0 = input
             guard_shift -1
@@ -310,7 +315,7 @@ mod tests {
             ([Cfg::BasicBlock(bb1)], [Cfg::BasicBlock(bb2)]) => (bb1.clone(), bb2.clone()),
             _ => panic!("not single basic blocks: {ir1:?}, {ir2:?}"),
         };
-        bb1.concat(&mut bb2, g);
+        bb1.concat(&mut bb2, &g);
         let expect = "
             guard_shift -1
             in0 = input
@@ -321,6 +326,6 @@ mod tests {
             @0 = in0 - 2
             @1 = in1
         ";
-        assert!(bb1.compare_pretty(expect, g));
+        assert!(bb1.compare_pretty(expect, &g));
     }
 }
