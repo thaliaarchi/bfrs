@@ -37,6 +37,11 @@ enum Entry<T> {
     Replaced(u32),
 }
 
+pub struct ArenaRef<'a, T: Eq + Hash> {
+    value: Ref<'a, T>,
+    arena: &'a HashArena<T>,
+}
+
 pub struct ArenaRefMut<'a, T: Eq + Hash> {
     value: RefMut<'a, T>,
     index: u32,
@@ -87,8 +92,9 @@ impl<T: Eq + Hash> HashArena<T> {
     }
 
     /// Borrows the identified value.
-    pub fn get(&self, id: Id<T>) -> Ref<'_, T> {
-        self.arena_entry(id).0.borrow()
+    pub fn get(&self, id: Id<T>) -> ArenaRef<'_, T> {
+        let value = self.arena_entry(id).0.borrow();
+        ArenaRef { value, arena: self }
     }
 
     /// Mutably borrows the identified value.
@@ -204,6 +210,29 @@ impl<T> Entry<T> {
     }
 }
 
+impl<'a, T: Eq + Hash> ArenaRef<'a, T> {
+    pub fn arena(&self) -> &'a HashArena<T> {
+        self.arena
+    }
+
+    pub fn get(&self, id: Id<T>) -> ArenaRef<'a, T> {
+        self.arena.get(id)
+    }
+
+    pub fn get_mut(&self, id: Id<T>) -> ArenaRefMut<'a, T> {
+        self.arena.get_mut(id)
+    }
+}
+
+impl<T: Eq + Hash> Deref for ArenaRef<'_, T> {
+    type Target = T;
+
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        &*self.value
+    }
+}
+
 impl<'a, T: Eq + Hash> ArenaRefMut<'a, T> {
     pub fn arena(&self) -> &'a HashArena<T> {
         self.arena
@@ -219,6 +248,14 @@ impl<'a, T: Eq + Hash> ArenaRefMut<'a, T> {
 
     pub fn set_unique(&mut self, is_unique: bool) {
         self.unique = is_unique;
+    }
+
+    pub fn get(&self, id: Id<T>) -> ArenaRef<'a, T> {
+        self.arena.get(id)
+    }
+
+    pub fn get_mut(&self, id: Id<T>) -> ArenaRefMut<'a, T> {
+        self.arena.get_mut(id)
     }
 }
 
