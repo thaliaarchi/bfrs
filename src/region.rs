@@ -1,9 +1,9 @@
 use std::fmt::{self, Debug, Formatter};
 
 use crate::{
-    graph::{ArrayId, ByteId, Graph, NodeId, TypedNodeId},
+    graph::{Graph, NodeId},
     memory::{Memory, MemoryBuilder},
-    node::{Array, Byte, Node},
+    node::Node,
     Ast,
 };
 
@@ -25,7 +25,7 @@ pub enum Effect {
     /// Printing a value. The node is a byte or an array.
     Output(NodeId),
     /// Reading from the user. The node is always `Node::Input`.
-    Input(ByteId),
+    Input(NodeId),
     /// Guarding that a shift can be performed by a certain amount.
     GuardShift(isize),
 }
@@ -48,10 +48,10 @@ impl Region {
                     memory.add(if inst == &Ast::Inc { 1 } else { 255 });
                 }
                 Ast::Output => {
-                    effects.push(Effect::Output(memory.compute_cell(g).as_node_id()));
+                    effects.push(Effect::Output(memory.compute_cell(g)));
                 }
                 Ast::Input => {
-                    let input = Byte::Input { id: inputs }.insert(g);
+                    let input = Node::Input { id: inputs }.insert(g);
                     inputs += 1;
                     effects.push(Effect::Input(input));
                     memory.set_cell(input);
@@ -74,13 +74,13 @@ impl Region {
             let mut effect = effect.clone();
             match &mut effect {
                 Effect::Output(value) => {
-                    *value = self.rebase_node(*value, g);
+                    *value = self.rebase(*value, g);
                 }
                 Effect::Input(value) => {
-                    let Byte::Input { id } = g[*value] else {
+                    let Node::Input { id } = g[*value] else {
                         panic!("invalid node in input");
                     };
-                    *value = Byte::Input {
+                    *value = Node::Input {
                         id: id + self.inputs,
                     }
                     .insert(g);
@@ -97,7 +97,7 @@ impl Region {
         self.join_outputs(g);
 
         for (_, cell) in other.memory.iter_mut() {
-            *cell = self.rebase_byte(*cell, g);
+            *cell = self.rebase(*cell, g);
         }
         self.memory.apply(&other.memory);
         self.inputs += other.inputs;
@@ -105,50 +105,38 @@ impl Region {
 
     /// Replaces `Copy` and `Input` nodes in the node to be relative to this
     /// region.
-    fn rebase_node(&mut self, node: NodeId, g: &mut Graph) -> NodeId {
-        match node.with_type(g) {
-            TypedNodeId::Byte(id) => self.rebase_byte(id, g).as_node_id(),
-            TypedNodeId::Array(id) => self.rebase_array(id, g).as_node_id(),
-        }
-    }
-
-    /// Replaces `Copy` and `Input` nodes in the byte node to be relative to
-    /// this region.
-    fn rebase_byte(&mut self, node: ByteId, g: &mut Graph) -> ByteId {
+    fn rebase(&mut self, node: NodeId, g: &mut Graph) -> NodeId {
         match g[node] {
-            Byte::Copy(offset) => self.memory.compute_cell(self.memory.offset() + offset, g),
-            Byte::Const(_) => node,
-            Byte::Input { id } => Byte::Input {
+            Node::Copy(offset) => self.memory.compute_cell(self.memory.offset() + offset, g),
+            Node::Const(_) => node,
+            Node::Input { id } => Node::Input {
                 id: id + self.inputs,
             }
             .insert(g),
-            Byte::Add(lhs, rhs) => {
-                let lhs2 = self.rebase_byte(lhs, g);
-                let rhs2 = self.rebase_byte(rhs, g);
+            Node::Add(lhs, rhs) => {
+                let lhs2 = self.rebase(lhs, g);
+                let rhs2 = self.rebase(rhs, g);
                 if lhs2 == lhs && rhs2 == rhs {
                     return node;
                 }
-                Byte::Add(lhs2, rhs2).idealize(g)
+                Node::Add(lhs2, rhs2).idealize(g)
             }
-            Byte::Mul(lhs, rhs) => {
-                let lhs2 = self.rebase_byte(lhs, g);
-                let rhs2 = self.rebase_byte(rhs, g);
+            Node::Mul(lhs, rhs) => {
+                let lhs2 = self.rebase(lhs, g);
+                let rhs2 = self.rebase(rhs, g);
                 if lhs2 == lhs && rhs2 == rhs {
                     return node;
                 }
-                Byte::Mul(lhs2, rhs2).idealize(g)
+                Node::Mul(lhs2, rhs2).idealize(g)
+            }
+            Node::Array(ref elements) => {
+                let mut elements2 = elements.clone();
+                for e in &mut elements2 {
+                    *e = self.rebase(*e, g);
+                }
+                Node::Array(elements2).insert(g)
             }
         }
-    }
-
-    /// Replaces `Copy` and `Input` nodes in the array node to be relative to
-    /// this region.
-    fn rebase_array(&mut self, node: ArrayId, g: &mut Graph) -> ArrayId {
-        let mut array = g[node].clone();
-        for e in &mut array.elements {
-            *e = self.rebase_byte(*e, g);
-        }
-        array.insert(g)
     }
 
     /// Joins adjacent output effects into a single output of an array.
@@ -162,24 +150,20 @@ impl Region {
                     .map(|n| i + 1 + n)
                     .unwrap_or(self.effects.len());
                 if j - i > 1 {
-                    let mut array = match &g[v1] {
-                        Node::Byte(_) => {
-                            let mut elements = Vec::new();
-                            elements.push(v1.as_byte_id(g).unwrap());
-                            Array { elements }
-                        }
-                        Node::Array(array) => array.clone(),
+                    let mut elements = match &g[v1] {
+                        Node::Array(elements) => elements.clone(),
+                        _ => vec![v1],
                     };
                     for output in self.effects.drain(i + 1..j) {
                         let Effect::Output(v) = output else {
                             unreachable!();
                         };
                         match &g[v] {
-                            Node::Byte(_) => array.elements.push(v.as_byte_id(g).unwrap()),
-                            Node::Array(other) => array.elements.extend_from_slice(&other.elements),
+                            Node::Array(other) => elements.extend_from_slice(&other),
+                            _ => elements.push(v),
                         }
                     }
-                    self.effects[i] = Effect::Output(array.insert(g).as_node_id());
+                    self.effects[i] = Effect::Output(Node::Array(elements).insert(g));
                 }
             }
             i += 1;

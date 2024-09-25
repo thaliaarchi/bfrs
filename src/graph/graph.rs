@@ -10,10 +10,9 @@ use std::{
 
 use hashbrown::{hash_map::DefaultHashBuilder, HashTable};
 
-use crate::{
-    graph::{ArrayId, ByteId},
-    node::{Array, Byte, Node},
-};
+use crate::node::Node;
+#[cfg(debug_assertions)]
+use crate::node::NodeType;
 
 /// A graph of unique nodes, structured as an arena.
 ///
@@ -68,25 +67,18 @@ impl Graph {
 
     /// Inserts a node and returns its ID. [`Node::Copy`] and [`Node::Input`]
     /// are not deduplicated.
-    pub fn insert_byte(&mut self, node: Byte) -> ByteId {
-        self.assert_byte(&node);
+    pub fn insert(&mut self, node: Node) -> NodeId {
+        self.assert_node(&node);
         match &node {
-            Byte::Copy(_) | Byte::Input { .. } => ByteId(self.insert(Node::Byte(node))),
-            Byte::Const(_) | Byte::Add(_, _) | Byte::Mul(_, _) => {
-                ByteId(self.get_or_insert(Node::Byte(node)))
+            Node::Copy(_) | Node::Input { .. } => self.insert_unique(node),
+            Node::Const(_) | Node::Add(..) | Node::Mul(..) | Node::Array(_) => {
+                self.get_or_insert(node)
             }
         }
     }
 
-    /// Inserts a node and returns its ID. [`Node::Copy`] and [`Node::Input`]
-    /// are not deduplicated.
-    pub fn insert_array(&mut self, node: Array) -> ArrayId {
-        self.assert_array(&node);
-        ArrayId(self.get_or_insert(Node::Array(node)))
-    }
-
     /// Inserts a node without deduplicating and returns its ID.
-    fn insert(&mut self, node: Node) -> NodeId {
+    fn insert_unique(&mut self, node: Node) -> NodeId {
         let id = NodeId::new(
             self.nodes.len(),
             #[cfg(debug_assertions)]
@@ -167,34 +159,26 @@ impl Graph {
         );
     }
 
-    fn assert_byte_id(&self, id: ByteId) {
-        self.assert_id(id.0);
+    fn assert_byte(&self, id: NodeId) {
+        self.assert_id(id);
         assert!(
-            matches!(self[id.0], Node::Byte(_)),
-            "node accessed with incorrect index type",
+            matches!(self[id].ty(), NodeType::Byte),
+            "node is not a byte",
         );
     }
 
     fn assert_node(&self, node: &Node) {
         match node {
-            Node::Byte(node) => self.assert_byte(node),
-            Node::Array(node) => self.assert_array(node),
-        }
-    }
-
-    fn assert_byte(&self, node: &Byte) {
-        match node {
-            Byte::Copy(_) | Byte::Const(_) | Byte::Input { .. } => {}
-            &Byte::Add(lhs, rhs) | &Byte::Mul(lhs, rhs) => {
-                self.assert_byte_id(lhs);
-                self.assert_byte_id(rhs);
+            Node::Copy(_) | Node::Const(_) | Node::Input { .. } => {}
+            &Node::Add(lhs, rhs) | &Node::Mul(lhs, rhs) => {
+                self.assert_byte(lhs);
+                self.assert_byte(rhs);
             }
-        }
-    }
-
-    fn assert_array(&self, node: &Array) {
-        for &id in &node.elements {
-            self.assert_byte_id(id);
+            Node::Array(elements) => {
+                for &id in elements {
+                    self.assert_byte(id);
+                }
+            }
         }
     }
 }
@@ -203,8 +187,6 @@ impl Graph {
 impl Graph {
     fn assert_id(&self, _id: NodeId) {}
     fn assert_node(&self, _node: &Node) {}
-    fn assert_byte(&self, _node: &Byte) {}
-    fn assert_array(&self, _node: &Array) {}
 }
 
 impl Index<NodeId> for Graph {
@@ -331,11 +313,7 @@ impl<T: Hash> Hash for NodeRef<'_, T> {
 impl Debug for Graph {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         fn write_node(f: &mut Formatter<'_>, i: usize, node: &Node) -> fmt::Result {
-            write!(f, "%{i} : ")?;
-            match node {
-                Node::Byte(node) => write!(f, "byte = {node:?}"),
-                Node::Array(node) => write!(f, "array = {node:?}"),
-            }
+            write!(f, "%{i} : {node:?}")
         }
         write!(f, "Graph {{")?;
         if f.alternate() {
@@ -365,18 +343,18 @@ impl Debug for Graph {
 
 #[cfg(test)]
 mod tests {
-    use crate::{graph::Graph, node::Byte};
+    use crate::{graph::Graph, node::Node};
 
     #[test]
     fn insert_unique() {
         let g = &mut Graph::new();
-        let id0 = Byte::Copy(0).insert(g);
-        let id1 = Byte::Const(1).insert(g);
-        let id2 = Byte::Add(id0, id1).insert(g);
-        let id0b = Byte::Copy(0).insert(g);
+        let id0 = Node::Copy(0).insert(g);
+        let id1 = Node::Const(1).insert(g);
+        let id2 = Node::Add(id0, id1).insert(g);
+        let id0b = Node::Copy(0).insert(g);
         assert_ne!(id0, id0b);
-        let id1b = Byte::Const(1).insert(g);
-        let id2b = Byte::Add(id0, id1b).insert(g);
+        let id1b = Node::Const(1).insert(g);
+        let id2b = Node::Add(id0, id1b).insert(g);
         assert_eq!(id1, id1b);
         assert_eq!(id2, id2b);
     }
@@ -386,10 +364,9 @@ mod tests {
     fn compare_mixed_ids() {
         let g1 = &mut Graph::new();
         let g2 = &mut Graph::new();
-        let id1 = Byte::Const(1).insert(g1);
-        let id2 = Byte::Const(2).insert(g2);
-        assert_eq!(id1.as_node_id().as_usize(), id2.as_node_id().as_usize());
-        assert_ne!(id1.as_node_id(), id2.as_node_id());
+        let id1 = Node::Const(1).insert(g1);
+        let id2 = Node::Const(2).insert(g2);
+        assert_eq!(id1.as_usize(), id2.as_usize());
         assert_ne!(id1, id2);
     }
 
@@ -399,8 +376,8 @@ mod tests {
     fn insert_mixed_ids() {
         let g1 = &mut Graph::new();
         let g2 = &mut Graph::new();
-        let id1 = Byte::Const(1).insert(g1);
-        let id2 = Byte::Const(2).insert(g1);
-        Byte::Add(id1, id2).insert(g2);
+        let id1 = Node::Const(1).insert(g1);
+        let id2 = Node::Const(2).insert(g1);
+        Node::Add(id1, id2).insert(g2);
     }
 }

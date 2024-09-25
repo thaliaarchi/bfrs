@@ -4,8 +4,8 @@ use std::{
 };
 
 use crate::{
-    graph::{ByteId, Graph},
-    node::Byte,
+    graph::{Graph, NodeId},
+    node::Node,
     region::Effect,
 };
 
@@ -13,7 +13,7 @@ use crate::{
 #[derive(Clone, PartialEq, Eq)]
 pub struct Memory {
     /// The values modified in this memory.
-    memory: VecDeque<Option<ByteId>>,
+    memory: VecDeque<Option<NodeId>>,
     /// The relative offset of the cell pointer.
     offset: isize,
     /// The relative offset of the first cell in `memory`.
@@ -29,7 +29,7 @@ pub struct Memory {
 pub struct MemoryBuilder {
     /// Tuples of the base node (a `Copy` or `Input`) and constant addend for
     /// each cell in this memory.
-    memory: VecDeque<(Option<ByteId>, u8)>,
+    memory: VecDeque<(Option<NodeId>, u8)>,
     offset: isize,
     min_offset: isize,
     guarded_left: isize,
@@ -38,7 +38,7 @@ pub struct MemoryBuilder {
 
 impl Memory {
     /// Gets the cell at the offset.
-    pub fn get_cell(&self, offset: isize) -> Option<ByteId> {
+    pub fn get_cell(&self, offset: isize) -> Option<NodeId> {
         self.memory
             .get(usize::try_from(offset - self.min_offset).ok()?)
             .copied()
@@ -46,20 +46,20 @@ impl Memory {
     }
 
     /// Gets a mutable reference to the cell at the offset.
-    pub fn get_cell_mut(&mut self, offset: isize) -> &mut Option<ByteId> {
+    pub fn get_cell_mut(&mut self, offset: isize) -> &mut Option<NodeId> {
         self.reserve(offset, offset + 1);
         &mut self.memory[(offset - self.min_offset) as usize]
     }
 
     /// Gets the value at the offset, forcing a `Copy` if this cell had not been
     /// modified.
-    pub fn compute_cell(&mut self, offset: isize, g: &mut Graph) -> ByteId {
+    pub fn compute_cell(&mut self, offset: isize, g: &mut Graph) -> NodeId {
         self.reserve(offset, offset + 1);
         let i = (offset - self.min_offset) as usize;
         match &mut self.memory[i] {
             Some(cell) => *cell,
             cell @ None => {
-                let copy = Byte::Copy(offset).insert(g);
+                let copy = Node::Copy(offset).insert(g);
                 *cell = Some(copy);
                 copy
             }
@@ -149,14 +149,14 @@ impl Memory {
     }
 
     /// Returns an iterator for values in this memory.
-    pub fn iter(&self) -> impl Iterator<Item = (isize, ByteId)> + '_ {
+    pub fn iter(&self) -> impl Iterator<Item = (isize, NodeId)> + '_ {
         (self.min_offset..)
             .zip(self.memory.iter())
             .filter_map(|(offset, cell)| cell.map(|cell| (offset, cell)))
     }
 
     /// Returns an iterator for mutable references to values in this memory.
-    pub fn iter_mut(&mut self) -> impl Iterator<Item = (isize, &mut ByteId)> + '_ {
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = (isize, &mut NodeId)> + '_ {
         (self.min_offset..)
             .zip(self.memory.iter_mut())
             .filter_map(|(offset, cell)| cell.as_mut().map(|cell| (offset, cell)))
@@ -192,18 +192,18 @@ impl MemoryBuilder {
     }
 
     /// Gets the value at the cell pointer, forcing construction of its nodes.
-    pub fn compute_cell(&mut self, g: &mut Graph) -> ByteId {
+    pub fn compute_cell(&mut self, g: &mut Graph) -> NodeId {
         let (base, addend) = *self.get_cell_parts();
-        let base = base.unwrap_or_else(|| Byte::Copy(self.offset).insert(g));
+        let base = base.unwrap_or_else(|| Node::Copy(self.offset).insert(g));
         if addend != 0 {
-            Byte::Add(base, Byte::Const(addend).insert(g)).insert(g)
+            Node::Add(base, Node::Const(addend).insert(g)).insert(g)
         } else {
             base
         }
     }
 
     /// Sets the value at the cell pointer.
-    pub fn set_cell(&mut self, cell: ByteId) {
+    pub fn set_cell(&mut self, cell: NodeId) {
         *self.get_cell_parts() = (Some(cell), 0);
     }
 
@@ -215,7 +215,7 @@ impl MemoryBuilder {
 
     /// Gets the base node (a `Copy` or `Input`) and constant addend for the
     /// value at the cell pointer.
-    fn get_cell_parts(&mut self) -> &mut (Option<ByteId>, u8) {
+    fn get_cell_parts(&mut self) -> &mut (Option<NodeId>, u8) {
         if self.memory.is_empty() {
             self.memory.push_back((None, 0));
             self.min_offset = self.offset;
@@ -263,12 +263,12 @@ impl MemoryBuilder {
         for (&(base, addend), offset) in self.memory.iter().zip(self.min_offset..) {
             let base = match base {
                 Some(base) => Some(base),
-                None if addend != 0 => Some(Byte::Copy(offset).insert(g)),
+                None if addend != 0 => Some(Node::Copy(offset).insert(g)),
                 None => None,
             };
             memory.push_back(base.map(|base| {
                 if addend != 0 {
-                    Byte::Add(base, Byte::Const(addend).insert(g)).insert(g)
+                    Node::Add(base, Node::Const(addend).insert(g)).insert(g)
                 } else {
                     base
                 }

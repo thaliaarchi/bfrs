@@ -1,9 +1,9 @@
 use std::fmt::{self, Debug, Formatter, Write};
 
 use crate::{
-    graph::{ArrayId, ByteId, Graph, NodeId, NodeRef, TypedNodeId},
+    graph::{Graph, NodeId, NodeRef},
     ir::{Cfg, Condition, Ir},
-    node::Byte,
+    node::Node,
     region::{Effect, Region},
 };
 
@@ -71,7 +71,7 @@ impl<'a> PrettyPrinter<'a> {
                 Effect::Output(value) => write!(self.w, "output {:?}", value.get(g))?,
                 Effect::Input(value) => {
                     write!(self.w, "{:?} = input", value.get(g))?;
-                    if let Byte::Input { id } = g[value] {
+                    if let Node::Input { id } = g[value] {
                         if id != inputs {
                             write!(self.w, " # BUG: unordered")?;
                         }
@@ -115,7 +115,7 @@ impl<'a> PrettyPrinter<'a> {
         }
 
         for (offset, node) in memory.iter() {
-            if g[node] != Byte::Copy(offset) {
+            if g[node] != Node::Copy(offset) {
                 self.indent(indent)?;
                 write!(self.w, "@{offset} = {:?}\n", node.get(g))?;
             }
@@ -138,14 +138,18 @@ impl<'a> PrettyPrinter<'a> {
     }
 }
 
-impl Debug for Byte {
+impl Debug for Node {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match *self {
-            Byte::Copy(offset) => write!(f, "copy {offset}"),
-            Byte::Const(c) => write!(f, "const {}", c as i8),
-            Byte::Input { id } => write!(f, "input {id}"),
-            Byte::Add(lhs, rhs) => write!(f, "add {lhs:?} {rhs:?}"),
-            Byte::Mul(lhs, rhs) => write!(f, "mul {lhs:?} {rhs:?}"),
+            Node::Copy(offset) => write!(f, "copy {offset}"),
+            Node::Const(c) => write!(f, "const {}", c as i8),
+            Node::Input { id } => write!(f, "input {id}"),
+            Node::Add(lhs, rhs) => write!(f, "add {lhs:?} {rhs:?}"),
+            Node::Mul(lhs, rhs) => write!(f, "mul {lhs:?} {rhs:?}"),
+            Node::Array(ref elements) => {
+                write!(f, "array ")?;
+                f.debug_list().entries(elements).finish()
+            }
         }
     }
 }
@@ -158,17 +162,7 @@ impl Debug for NodeId {
 
 impl Debug for NodeRef<'_, NodeId> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        let g = self.graph();
-        match self.id().with_type(g) {
-            TypedNodeId::Byte(id) => Debug::fmt(&id.get(g), f),
-            TypedNodeId::Array(id) => Debug::fmt(&id.get(g), f),
-        }
-    }
-}
-
-impl Debug for NodeRef<'_, ByteId> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        fn group(f: &mut Formatter<'_>, node: NodeRef<'_, ByteId>, grouped: bool) -> fmt::Result {
+        fn group(f: &mut Formatter<'_>, node: NodeRef<'_, NodeId>, grouped: bool) -> fmt::Result {
             if grouped {
                 write!(f, "({node:?})")
             } else {
@@ -177,74 +171,66 @@ impl Debug for NodeRef<'_, ByteId> {
         }
         let g = self.graph();
         match *self.node() {
-            Byte::Copy(offset) => write!(f, "@{offset}"),
-            Byte::Const(value) => write!(f, "{}", value as i8),
-            Byte::Input { id } => write!(f, "in{id}"),
-            Byte::Add(lhs, rhs) => {
+            Node::Copy(offset) => write!(f, "@{offset}"),
+            Node::Const(value) => write!(f, "{}", value as i8),
+            Node::Input { id } => write!(f, "in{id}"),
+            Node::Add(lhs, rhs) => {
                 write!(f, "{:?}", &g.get(lhs))?;
-                if let &Byte::Const(rhs) = g.get(rhs).node() {
+                if let &Node::Const(rhs) = g.get(rhs).node() {
                     if (rhs as i8) < 0 {
                         return write!(f, " - {}", (rhs as i8).unsigned_abs());
                     }
                 }
                 write!(f, " + ")?;
-                group(f, g.get(rhs), matches!(g[rhs], Byte::Add(..)))
+                group(f, g.get(rhs), matches!(g[rhs], Node::Add(..)))
             }
-            Byte::Mul(lhs, rhs) => {
-                group(f, g.get(lhs), matches!(g[lhs], Byte::Add(..)))?;
+            Node::Mul(lhs, rhs) => {
+                group(f, g.get(lhs), matches!(g[lhs], Node::Add(..)))?;
                 write!(f, " * ")?;
                 group(
                     f,
                     g.get(rhs),
-                    matches!(g[rhs], Byte::Add(..) | Byte::Mul(..)),
+                    matches!(g[rhs], Node::Add(..) | Node::Mul(..)),
                 )
             }
-        }
-    }
-}
-
-impl Debug for NodeRef<'_, ArrayId> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        fn write_char(w: &mut dyn Write, ch: u8) -> fmt::Result {
-            match ch {
-                b'\0' => write!(w, "\\0"),
-                b'\t' => write!(w, "\\t"),
-                b'\n' => write!(w, "\\n"),
-                b'\r' => write!(w, "\\r"),
-                b'\\' => write!(w, "\\\\"),
-                _ if ch.is_ascii() && !ch.is_ascii_control() => write!(w, "{}", ch as char),
-                _ => write!(w, "\\x{ch:02x}"),
-            }
-        }
-        let g = self.graph();
-        if self
-            .elements
-            .iter()
-            .all(|&e| matches!(g[e], Byte::Const(_)))
-        {
-            write!(f, "\"")?;
-            for &e in &self.elements {
-                let Byte::Const(ch) = g[e] else {
-                    unreachable!();
-                };
-                write_char(f, ch)?;
-            }
-            write!(f, "\"")
-        } else {
-            write!(f, "[")?;
-            for (i, &e) in self.elements.iter().enumerate() {
-                if i != 0 {
-                    write!(f, ", ")?;
+            Node::Array(ref elements) => {
+                fn write_char(w: &mut dyn Write, ch: u8) -> fmt::Result {
+                    match ch {
+                        b'\0' => write!(w, "\\0"),
+                        b'\t' => write!(w, "\\t"),
+                        b'\n' => write!(w, "\\n"),
+                        b'\r' => write!(w, "\\r"),
+                        b'\\' => write!(w, "\\\\"),
+                        _ if ch.is_ascii() && !ch.is_ascii_control() => write!(w, "{}", ch as char),
+                        _ => write!(w, "\\x{ch:02x}"),
+                    }
                 }
-                if let Byte::Const(ch) = g[e] {
-                    write!(f, "'")?;
-                    write_char(f, ch)?;
-                    write!(f, "'")?;
+                if elements.iter().all(|&e| matches!(g[e], Node::Const(_))) {
+                    write!(f, "\"")?;
+                    for &e in elements {
+                        let Node::Const(ch) = g[e] else {
+                            unreachable!();
+                        };
+                        write_char(f, ch)?;
+                    }
+                    write!(f, "\"")
                 } else {
-                    write!(f, "{:?}", g.get(e))?;
+                    write!(f, "[")?;
+                    for (i, &e) in elements.iter().enumerate() {
+                        if i != 0 {
+                            write!(f, ", ")?;
+                        }
+                        if let Node::Const(ch) = g[e] {
+                            write!(f, "'")?;
+                            write_char(f, ch)?;
+                            write!(f, "'")?;
+                        } else {
+                            write!(f, "{:?}", g.get(e))?;
+                        }
+                    }
+                    write!(f, "]")
                 }
             }
-            write!(f, "]")
         }
     }
 }

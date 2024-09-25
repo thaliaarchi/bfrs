@@ -1,180 +1,190 @@
 use std::{cmp::Ordering, collections::BTreeSet, isize, mem, usize};
 
-use crate::graph::{ArrayId, ByteId, Graph, NodeRef};
+use crate::graph::{Graph, NodeId, NodeRef};
 
 // TODO:
 // - Reuse scratch sets for ordering Byte.
 
 /// A node in a graph.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub enum Node {
-    Byte(Byte),
-    Array(Array),
-}
-
-/// A byte value in a graph.
 #[derive(Clone, PartialEq, Eq, Hash)]
-pub enum Byte {
-    /// Copy the value from the cell at the offset.
+pub enum Node {
+    // Byte values.
+    /// Copy the byte from the cell at the offset.
     Copy(isize),
-    /// A constant value.
+    /// A constant byte.
     Const(u8),
-    /// A value read from the user.
+    /// A byte read from the user.
     Input { id: usize },
-    /// Addition of two values.
-    Add(ByteId, ByteId),
-    /// Multiplication of two values.
-    Mul(ByteId, ByteId),
+    /// Addition of two bytes.
+    Add(NodeId, NodeId),
+    /// Multiplication of two bytes.
+    Mul(NodeId, NodeId),
+
+    // Array value.
+    /// An array with static size and dynamic elements.
+    Array(Vec<NodeId>),
 }
 
-/// An array with static size and dynamic elements.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct Array {
-    pub elements: Vec<ByteId>,
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum NodeType {
+    Byte,
+    Array,
 }
 
-impl Byte {
-    /// Inserts this byte node into the graph and transforms it to its ideal
+impl Node {
+    /// Inserts this node into the graph and transforms it to its ideal
     /// representation.
-    pub fn idealize(self, g: &mut Graph) -> ByteId {
+    pub fn idealize(self, g: &mut Graph) -> NodeId {
         match self {
-            Byte::Copy(_) | Byte::Const(_) | Byte::Input { .. } => self.insert(g),
-            Byte::Add(mut lhs, mut rhs) => {
-                if let Byte::Add(b, c) = g[rhs] {
-                    if let Byte::Add(..) = g[lhs] {
-                        return Byte::Add(Byte::Add(lhs, b).idealize(g), c).idealize(g);
+            Node::Add(mut lhs, mut rhs) => {
+                if let Node::Add(b, c) = g[rhs] {
+                    if let Node::Add(..) = g[lhs] {
+                        return Node::Add(Node::Add(lhs, b).idealize(g), c).idealize(g);
                     }
                     mem::swap(&mut lhs, &mut rhs);
                 }
                 let (tail, head) = match g[lhs] {
-                    Byte::Add(a, b) => (Some(a), b),
+                    Node::Add(a, b) => (Some(a), b),
                     _ => (None, lhs),
                 };
                 let (res, idealize) = match (&g[head], &g[rhs]) {
-                    (&Byte::Const(a), &Byte::Const(b)) => {
-                        (Byte::Const(a.wrapping_add(b)).insert(g), true)
+                    (&Node::Const(a), &Node::Const(b)) => {
+                        (Node::Const(a.wrapping_add(b)).insert(g), true)
                     }
-                    (_, Byte::Const(0)) => (head, false),
-                    (Byte::Const(0), _) => (rhs, true),
-                    (Byte::Const(_), _) => {
+                    (_, Node::Const(0)) => (head, false),
+                    (Node::Const(0), _) => (rhs, true),
+                    (Node::Const(_), _) => {
                         if let Some(tail) = tail {
-                            return Byte::Add(Byte::Add(tail, rhs).idealize(g), head).idealize(g);
+                            return Node::Add(Node::Add(tail, rhs).idealize(g), head).idealize(g);
                         } else {
-                            return Byte::Add(rhs, head).insert(g);
+                            return Node::Add(rhs, head).insert(g);
                         }
                     }
                     _ if head == rhs => {
-                        (Byte::Mul(head, Byte::Const(2).insert(g)).idealize(g), true)
+                        (Node::Mul(head, Node::Const(2).insert(g)).idealize(g), true)
                     }
-                    (&Byte::Mul(a, b), _) if a == rhs => {
-                        let n = Byte::Add(b, Byte::Const(1).insert(g)).idealize(g);
-                        (Byte::Mul(a, n).idealize(g), true)
+                    (&Node::Mul(a, b), _) if a == rhs => {
+                        let n = Node::Add(b, Node::Const(1).insert(g)).idealize(g);
+                        (Node::Mul(a, n).idealize(g), true)
                     }
-                    (_, &Byte::Mul(b, c)) if b == head => {
-                        let n = Byte::Add(c, Byte::Const(1).insert(g)).idealize(g);
-                        (Byte::Mul(b, n).idealize(g), true)
+                    (_, &Node::Mul(b, c)) if b == head => {
+                        let n = Node::Add(c, Node::Const(1).insert(g)).idealize(g);
+                        (Node::Mul(b, n).idealize(g), true)
                     }
                     _ if head.get(g).cmp_by_variable_order(rhs.get(g)).is_gt() => {
                         if let Some(tail) = tail {
-                            return Byte::Add(Byte::Add(tail, rhs).idealize(g), head).idealize(g);
+                            return Node::Add(Node::Add(tail, rhs).idealize(g), head).idealize(g);
                         } else {
-                            return Byte::Add(rhs, head).insert(g);
+                            return Node::Add(rhs, head).insert(g);
                         }
                     }
-                    _ => return Byte::Add(lhs, rhs).insert(g),
+                    _ => return Node::Add(lhs, rhs).insert(g),
                 };
                 if let Some(tail) = tail {
                     if res == head {
                         lhs
                     } else if idealize {
-                        Byte::Add(tail, res).idealize(g)
+                        Node::Add(tail, res).idealize(g)
                     } else {
-                        Byte::Add(tail, res).insert(g)
+                        Node::Add(tail, res).insert(g)
                     }
                 } else {
                     res
                 }
             }
-            Byte::Mul(mut lhs, mut rhs) => {
-                if let Byte::Mul(b, c) = g[rhs] {
-                    if let Byte::Mul(..) = g[lhs] {
-                        return Byte::Mul(Byte::Mul(lhs, b).idealize(g), c).idealize(g);
+            Node::Mul(mut lhs, mut rhs) => {
+                if let Node::Mul(b, c) = g[rhs] {
+                    if let Node::Mul(..) = g[lhs] {
+                        return Node::Mul(Node::Mul(lhs, b).idealize(g), c).idealize(g);
                     }
                     mem::swap(&mut lhs, &mut rhs);
                 }
                 let (tail, head) = match g[lhs] {
-                    Byte::Mul(a, b) => (Some(a), b),
+                    Node::Mul(a, b) => (Some(a), b),
                     _ => (None, lhs),
                 };
                 let (res, idealize) = match (&g[head], &g[rhs]) {
-                    (&Byte::Const(a), &Byte::Const(b)) => {
-                        (Byte::Const(a.wrapping_mul(b)).insert(g), true)
+                    (&Node::Const(a), &Node::Const(b)) => {
+                        (Node::Const(a.wrapping_mul(b)).insert(g), true)
                     }
-                    (_, Byte::Const(1)) => (head, false),
-                    (Byte::Const(1), _) => (rhs, true),
-                    (_, Byte::Const(0)) | (Byte::Const(0), _) => return Byte::Const(0).insert(g),
-                    (Byte::Const(_), _) => {
+                    (_, Node::Const(1)) => (head, false),
+                    (Node::Const(1), _) => (rhs, true),
+                    (_, Node::Const(0)) | (Node::Const(0), _) => return Node::Const(0).insert(g),
+                    (Node::Const(_), _) => {
                         if let Some(tail) = tail {
-                            return Byte::Mul(Byte::Mul(tail, rhs).idealize(g), head).idealize(g);
+                            return Node::Mul(Node::Mul(tail, rhs).idealize(g), head).idealize(g);
                         } else {
-                            return Byte::Mul(rhs, head).insert(g);
+                            return Node::Mul(rhs, head).insert(g);
                         }
                     }
                     _ if head.get(g).cmp_by_variable_order(rhs.get(g)).is_gt() => {
                         if let Some(tail) = tail {
-                            return Byte::Mul(Byte::Mul(tail, rhs).idealize(g), head).idealize(g);
+                            return Node::Mul(Node::Mul(tail, rhs).idealize(g), head).idealize(g);
                         } else {
-                            return Byte::Mul(rhs, head).insert(g);
+                            return Node::Mul(rhs, head).insert(g);
                         }
                     }
-                    _ => return Byte::Mul(lhs, rhs).insert(g),
+                    _ => return Node::Mul(lhs, rhs).insert(g),
                 };
                 if let Some(tail) = tail {
                     if res == head {
                         lhs
                     } else if idealize {
-                        Byte::Mul(tail, res).idealize(g)
+                        Node::Mul(tail, res).idealize(g)
                     } else {
-                        Byte::Mul(tail, res).insert(g)
+                        Node::Mul(tail, res).insert(g)
                     }
                 } else {
                     res
                 }
             }
+            _ => self.insert(g),
         }
     }
 
     /// Gets or inserts this node into a graph and returns its ID.
     #[inline]
-    pub fn insert(self, g: &mut Graph) -> ByteId {
-        g.insert_byte(self)
+    pub fn insert(self, g: &mut Graph) -> NodeId {
+        g.insert(self)
+    }
+
+    pub fn ty(&self) -> NodeType {
+        match self {
+            Node::Copy(_) | Node::Const(_) | Node::Input { .. } | Node::Add(..) | Node::Mul(..) => {
+                NodeType::Byte
+            }
+            Node::Array(_) => NodeType::Array,
+        }
     }
 }
 
-impl NodeRef<'_, ByteId> {
+impl NodeRef<'_, NodeId> {
     /// Returns whether this node references a cell besides at the given offset.
     pub fn references_other(&self, offset: isize) -> bool {
         match *self.node() {
-            Byte::Copy(offset2) => offset2 != offset,
-            Byte::Const(_) | Byte::Input { .. } => false,
-            Byte::Add(lhs, rhs) | Byte::Mul(lhs, rhs) => {
-                lhs.get(self.graph()).references_other(offset)
-                    || rhs.get(self.graph()).references_other(offset)
+            Node::Copy(offset2) => offset2 != offset,
+            Node::Const(_) | Node::Input { .. } => false,
+            Node::Add(lhs, rhs) | Node::Mul(lhs, rhs) => {
+                self.graph().get(lhs).references_other(offset)
+                    || self.graph().get(rhs).references_other(offset)
             }
+            Node::Array(ref elements) => elements
+                .iter()
+                .any(|&e| self.graph().get(e).references_other(offset)),
         }
     }
 
-    /// Orders two `Byte` nodes by variable ordering, i.e., the contained `Copy`
+    /// Orders two `Node` nodes by variable ordering, i.e., the contained `Copy`
     /// offsets and `Input` IDs.
     pub fn cmp_by_variable_order(&self, other: Self) -> Ordering {
         match (self.node(), other.node()) {
-            (Byte::Const(a), Byte::Const(b)) => a.cmp(b),
-            (_, Byte::Const(_)) => Ordering::Less,
-            (Byte::Const(_), _) => Ordering::Greater,
-            (Byte::Copy(a), Byte::Copy(b)) => a.cmp(b),
-            (Byte::Input { id: a }, Byte::Input { id: b }) => a.cmp(b),
-            (Byte::Copy(_), Byte::Input { .. }) => Ordering::Less,
-            (Byte::Input { .. }, Byte::Copy(_)) => Ordering::Greater,
+            (Node::Const(a), Node::Const(b)) => a.cmp(b),
+            (_, Node::Const(_)) => Ordering::Less,
+            (Node::Const(_), _) => Ordering::Greater,
+            (Node::Copy(a), Node::Copy(b)) => a.cmp(b),
+            (Node::Input { id: a }, Node::Input { id: b }) => a.cmp(b),
+            (Node::Copy(_), Node::Input { .. }) => Ordering::Less,
+            (Node::Input { .. }, Node::Copy(_)) => Ordering::Greater,
             _ => {
                 // The general case. First, try a scan which tracks only the
                 // minimums to avoid most allocations.
@@ -224,76 +234,83 @@ impl NodeRef<'_, ByteId> {
 
     fn min_terms_(&self, min_offset: &mut isize, min_input: &mut usize) {
         match *self.node() {
-            Byte::Copy(offset) => {
+            Node::Copy(offset) => {
                 debug_assert!(offset != isize::MAX);
                 *min_offset = offset.min(*min_offset);
             }
-            Byte::Const(_) => {}
-            Byte::Input { id } => {
+            Node::Const(_) => {}
+            Node::Input { id } => {
                 debug_assert!(id != usize::MAX);
                 *min_input = id.min(*min_input);
             }
-            Byte::Add(lhs, rhs) => {
+            Node::Add(lhs, rhs) => {
                 self.graph().get(lhs).min_terms_(min_offset, min_input);
                 self.graph().get(rhs).min_terms_(min_offset, min_input);
             }
-            Byte::Mul(lhs, rhs) => {
+            Node::Mul(lhs, rhs) => {
                 self.graph().get(lhs).min_terms_(min_offset, min_input);
                 self.graph().get(rhs).min_terms_(min_offset, min_input);
+            }
+            Node::Array(ref elements) => {
+                for &e in elements {
+                    self.graph().get(e).min_terms_(min_offset, min_input);
+                }
             }
         }
     }
 
     fn offsets(&self, offsets: &mut BTreeSet<isize>) {
         match *self.node() {
-            Byte::Copy(offset) => {
+            Node::Copy(offset) => {
                 offsets.insert(offset);
             }
-            Byte::Const(_) | Byte::Input { .. } => {}
-            Byte::Add(lhs, rhs) | Byte::Mul(lhs, rhs) => {
+            Node::Const(_) | Node::Input { .. } => {}
+            Node::Add(lhs, rhs) | Node::Mul(lhs, rhs) => {
                 self.graph().get(lhs).offsets(offsets);
                 self.graph().get(rhs).offsets(offsets);
+            }
+            Node::Array(ref elements) => {
+                for &e in elements {
+                    self.graph().get(e).offsets(offsets);
+                }
             }
         }
     }
 
     fn inputs(&self, inputs: &mut BTreeSet<usize>) {
         match *self.node() {
-            Byte::Copy(_) | Byte::Const(_) => {}
-            Byte::Input { id } => {
+            Node::Copy(_) | Node::Const(_) => {}
+            Node::Input { id } => {
                 inputs.insert(id);
             }
-            Byte::Add(lhs, rhs) | Byte::Mul(lhs, rhs) => {
+            Node::Add(lhs, rhs) | Node::Mul(lhs, rhs) => {
                 self.graph().get(lhs).inputs(inputs);
                 self.graph().get(rhs).inputs(inputs);
+            }
+            Node::Array(ref elements) => {
+                for &e in elements {
+                    self.graph().get(e).inputs(inputs);
+                }
             }
         }
     }
 }
 
-impl Array {
-    /// Gets or inserts this node into a graph and returns its ID.
-    #[inline]
-    pub fn insert(self, g: &mut Graph) -> ArrayId {
-        g.insert_array(self)
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use crate::{graph::Graph, node::Byte};
+    use crate::{graph::Graph, node::Node};
 
     #[test]
     fn idealize_add() {
         let g = &mut Graph::new();
-        let x = Byte::Copy(0).idealize(g);
-        let y = Byte::Copy(2).idealize(g);
-        let add = Byte::Add(
-            Byte::Add(x, Byte::Const(1).idealize(g)).idealize(g),
-            Byte::Add(y, Byte::Const(3).idealize(g)).idealize(g),
+        let x = Node::Copy(0).idealize(g);
+        let y = Node::Copy(2).idealize(g);
+        let add = Node::Add(
+            Node::Add(x, Node::Const(1).idealize(g)).idealize(g),
+            Node::Add(y, Node::Const(3).idealize(g)).idealize(g),
         )
         .idealize(g);
-        let expected = Byte::Add(Byte::Add(x, y).insert(g), Byte::Const(4).insert(g)).insert(g);
+        let expected = Node::Add(Node::Add(x, y).insert(g), Node::Const(4).insert(g)).insert(g);
         assert_eq!(g.get(add), g.get(expected));
     }
 }

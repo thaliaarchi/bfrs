@@ -1,9 +1,9 @@
 use std::fmt::{self, Debug, Formatter};
 
 use crate::{
-    graph::{ByteId, Graph},
+    graph::{Graph, NodeId},
     memory::MemoryBuilder,
-    node::Byte,
+    node::Node,
     region::{Effect, Region},
     Ast,
 };
@@ -43,8 +43,8 @@ pub enum Condition {
     WhileNonZero,
     /// Execute if the current cell is non-zero.
     IfNonZero,
-    /// Loop a fixed number of times.
-    Count(ByteId),
+    /// Loop a fixed number of times. The value must be a byte.
+    Count(NodeId),
 }
 
 impl Ir {
@@ -128,14 +128,14 @@ impl Cfg {
             if let [Cfg::BasicBlock(bb)] = body.as_mut_slice() {
                 if bb.memory.offset() == 0 {
                     if let Some(current) = bb.memory.get_cell(0) {
-                        if let Byte::Add(lhs, rhs) = g[current] {
-                            if let (Byte::Copy(0), &Byte::Const(rhs)) = (&g[lhs], &g[rhs]) {
+                        if let Node::Add(lhs, rhs) = g[current] {
+                            if let (Node::Copy(0), &Node::Const(rhs)) = (&g[lhs], &g[rhs]) {
                                 if let Some(iterations) = mod_inverse(rhs.wrapping_neg()) {
-                                    let addend = Byte::Mul(lhs, Byte::Const(iterations).insert(g))
+                                    let addend = Node::Mul(lhs, Node::Const(iterations).insert(g))
                                         .idealize(g);
                                     if !bb.memory.iter().any(|(offset, cell)| {
                                         cell.get(g).references_other(offset)
-                                            || matches!(g[cell], Byte::Input { .. } | Byte::Mul(..))
+                                            || matches!(g[cell], Node::Input { .. } | Node::Mul(..))
                                     }) {
                                         if bb
                                             .effects
@@ -143,12 +143,12 @@ impl Cfg {
                                             .all(|effect| matches!(effect, Effect::GuardShift(_)))
                                         {
                                             *bb.memory.get_cell_mut(0) =
-                                                Some(Byte::Const(0).insert(g));
+                                                Some(Node::Const(0).insert(g));
                                             for (_, cell) in bb.memory.iter_mut() {
-                                                if let Byte::Add(lhs, rhs) = g[*cell] {
-                                                    *cell = Byte::Add(
+                                                if let Node::Add(lhs, rhs) = g[*cell] {
+                                                    *cell = Node::Add(
                                                         lhs,
-                                                        Byte::Mul(rhs, addend).idealize(g),
+                                                        Node::Mul(rhs, addend).idealize(g),
                                                     )
                                                     .idealize(g);
                                                 }
@@ -172,11 +172,11 @@ impl Cfg {
                     Cfg::BasicBlock(bb) => {
                         if let Some(v) = bb.memory.get_cell(bb.memory.offset()) {
                             match g[v] {
-                                Byte::Const(0) => {
+                                Node::Const(0) => {
                                     guaranteed_zero = true;
                                     break;
                                 }
-                                Byte::Copy(0) => {}
+                                Node::Copy(0) => {}
                                 _ => {
                                     guaranteed_zero = false;
                                     break;
