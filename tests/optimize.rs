@@ -1,20 +1,20 @@
 use std::fs;
 
-use bfrs::{graph::Graph, ir::Ir, Ast};
+use bfrs::{graph::Graph, Ast};
 
 fn test_lower(src: &str, expect: &str) {
-    let mut g = Graph::new();
+    let g = Graph::new();
     let ast = Ast::parse(src.as_bytes()).unwrap();
-    let ir = Ir::lower(&ast, &mut g);
-    assert!(ir.compare_pretty(expect, &g));
+    let ir = g.lower(&ast);
+    assert!(g.get(ir).compare_pretty(expect));
 }
 
 fn test_optimize(src: &str, expect: &str) {
-    let mut g = Graph::new();
+    let g = Graph::new();
     let ast = Ast::parse(src.as_bytes()).unwrap();
-    let mut ir = Ir::lower(&ast, &mut g);
-    ir.optimize(&mut g);
-    assert!(ir.compare_pretty(expect, &g));
+    let ir = g.lower(&ast);
+    g.optimize(g.get_mut(ir));
+    assert!(g.get(ir).compare_pretty(expect));
 }
 
 fn test_lower_file(src_path: &str, expect_path: &str) {

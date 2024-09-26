@@ -7,7 +7,7 @@ use crate::{
 
 /// A region of code, that tracks memory and effects. It currently corresponds
 /// to a basic block.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Region {
     /// The memory for this region.
     pub memory: Memory,
@@ -18,7 +18,7 @@ pub struct Region {
 }
 
 /// An observable effect.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Effect {
     /// Printing a value. The node is a byte or an array.
     Output(NodeId),
@@ -66,7 +66,7 @@ impl Region {
 
     /// Concatenates two regions. Applies the operations of `other` to
     /// `self` and modifies `other`.
-    pub fn concat(&mut self, other: &mut Self, g: &Graph) {
+    pub fn concat(&mut self, other: &Self, g: &Graph) {
         self.effects.reserve(other.effects.len());
         for effect in &other.effects {
             let mut effect = effect.clone();
@@ -94,10 +94,11 @@ impl Region {
         }
         self.join_outputs(g);
 
-        for (_, cell) in other.memory.iter_mut() {
+        let mut other_memory = other.memory.clone();
+        for (_, cell) in other_memory.iter_mut() {
             *cell = self.rebase(*cell, g);
         }
-        self.memory.apply(&other.memory);
+        self.memory.apply(&other_memory);
         self.inputs += other.inputs;
     }
 
@@ -105,6 +106,9 @@ impl Region {
     /// region.
     fn rebase(&mut self, node: NodeId, g: &Graph) -> NodeId {
         match *g.get(node) {
+            Node::Root { .. } | Node::BasicBlock(_) | Node::Loop { .. } => {
+                panic!("unexpected control node")
+            }
             Node::Copy(offset) => self.memory.compute_cell(self.memory.offset() + offset, g),
             Node::Const(_) => node,
             Node::Input { id } => Node::Input {

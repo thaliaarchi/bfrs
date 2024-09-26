@@ -374,6 +374,18 @@ impl<T: Debug + Eq + Hash> Debug for HashArena<T> {
     }
 }
 
+impl<T: Debug + Eq + Hash> Debug for ArenaRef<'_, T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        Debug::fmt(self.value(), f)
+    }
+}
+
+impl<T: Debug + Eq + Hash> Debug for ArenaRefMut<'_, T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        Debug::fmt(self.value(), f)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::graph::hash_arena::HashArena;

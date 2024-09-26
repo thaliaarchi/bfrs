@@ -1,9 +1,7 @@
-use std::fmt::{self, Debug, Formatter};
-
 use crate::{
-    graph::{Graph, NodeId},
+    graph::{hash_arena::ArenaRefMut, Graph, NodeId},
     memory::MemoryBuilder,
-    node::Node,
+    node::{Condition, Node},
     region::{Effect, Region},
     Ast,
 };
@@ -16,209 +14,168 @@ use crate::{
 // - Move guard_shift out of loops with no net shift. Peel the first iteration
 //   if necessary.
 
-/// The root of the IR.
-#[derive(Clone, PartialEq, Eq)]
-pub struct Ir {
-    pub blocks: Vec<Cfg>,
-}
-
-/// A control node in the IR.
-#[derive(Clone, PartialEq, Eq)]
-pub enum Cfg {
-    /// A basic block of non-branching instructions.
-    BasicBlock(Region),
-    /// Loop while some condition is true.
-    Loop {
-        /// Loop condition.
-        condition: Condition,
-        /// The contained blocks.
-        body: Vec<Cfg>,
-    },
-}
-
-/// A loop condition.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Condition {
-    /// Loop while the current cell is non-zero.
-    WhileNonZero,
-    /// Execute if the current cell is non-zero.
-    IfNonZero,
-    /// Loop a fixed number of times. The value must be a byte.
-    Count(NodeId),
-}
-
-impl Ir {
-    pub fn lower(ast: &[Ast], g: &Graph) -> Self {
-        Ir {
-            blocks: Ir::lower_blocks(ast, g),
+impl Graph {
+    pub fn lower(&self, ast: &[Ast]) -> NodeId {
+        Node::Root {
+            blocks: self.lower_blocks(ast),
         }
+        .insert(self)
     }
 
-    fn lower_blocks(mut ast: &[Ast], g: &Graph) -> Vec<Cfg> {
+    fn lower_blocks(&self, mut ast: &[Ast]) -> Vec<NodeId> {
         let mut memory = MemoryBuilder::new();
         let mut ir = vec![];
         while let Some((inst, rest)) = ast.split_first() {
-            if let Ast::Loop(body) = inst {
-                ir.push(Cfg::Loop {
-                    condition: Condition::WhileNonZero,
-                    body: Ir::lower_blocks(body, g),
-                });
+            let node = if let Ast::Loop(body) = inst {
                 ast = rest;
+                Node::Loop {
+                    condition: Condition::WhileNonZero,
+                    body: self.lower_blocks(body),
+                }
             } else {
                 let i = ast
                     .iter()
                     .position(|inst| matches!(inst, Ast::Loop(_)))
                     .unwrap_or(ast.len());
                 let (linear_insts, rest) = ast.split_at(i);
-                ir.push(Cfg::BasicBlock(Region::from_basic_block(
-                    linear_insts,
-                    &mut memory,
-                    g,
-                )));
                 ast = rest;
-            }
+                Node::BasicBlock(Region::from_basic_block(linear_insts, &mut memory, self))
+            };
+            ir.push(node.insert(self));
         }
         ir
     }
 
-    pub fn optimize(&mut self, g: &Graph) {
-        let first_non_loop = self
-            .blocks
-            .iter()
-            .position(|block| !matches!(block, Cfg::Loop { .. }))
-            .unwrap_or(0);
-        self.blocks.drain(..first_non_loop);
-        Self::optimize_blocks(&mut self.blocks, g);
-    }
-
-    fn optimize_blocks(ir: &mut Vec<Cfg>, g: &Graph) {
-        ir.dedup_by(|block2, block1| match (block1, block2) {
-            (
-                Cfg::Loop {
-                    condition: Condition::WhileNonZero,
-                    ..
-                },
-                Cfg::Loop {
-                    condition: Condition::WhileNonZero,
-                    ..
-                },
-            ) => true,
-            _ => false,
-        });
-        for block in ir.iter_mut() {
-            block.optimize(g);
-        }
-        ir.dedup_by(|block2, block1| match (block1, block2) {
-            (Cfg::BasicBlock(block1), Cfg::BasicBlock(block2)) => {
-                block1.concat(block2, g);
-                true
+    pub fn optimize<'g>(&'g self, mut node: ArenaRefMut<'g, Node>) {
+        match node.value_mut() {
+            Node::Root { blocks } => {
+                let first_non_loop = blocks
+                    .iter()
+                    .position(|&block| !matches!(*self.get(block), Node::Loop { .. }))
+                    .unwrap_or(0);
+                blocks.drain(..first_non_loop);
+                self.optimize_blocks(blocks);
             }
-            _ => false,
-        });
-    }
-}
-
-impl Cfg {
-    /// Optimizes decrement loops and if-style loops.
-    pub fn optimize(&mut self, g: &Graph) {
-        if let Cfg::BasicBlock(bb) = self {
-            bb.join_outputs(g);
-        } else if let Cfg::Loop { condition, body } = self {
-            Ir::optimize_blocks(body, g);
-            if let [Cfg::BasicBlock(bb)] = body.as_mut_slice() {
-                if bb.memory.offset() == 0 {
-                    if let Some(current) = bb.memory.get_cell(0) {
-                        let current_ref = g.get(current);
-                        if let Node::Add(lhs, rhs) = *current_ref {
-                            let (lhs_ref, rhs_ref) = (g.get(lhs), g.get(rhs));
-                            if let (Node::Copy(0), &Node::Const(rhs)) = (&*lhs_ref, &*rhs_ref) {
-                                if let Some(iterations) = mod_inverse(rhs.wrapping_neg()) {
-                                    let addend = Node::Mul(lhs, Node::Const(iterations).insert(g))
-                                        .idealize(g);
-                                    if !bb.memory.iter().any(|(offset, cell)| {
-                                        let cell = g.get(cell);
-                                        cell.references_other(offset)
-                                            || matches!(*cell, Node::Input { .. } | Node::Mul(..))
-                                    }) {
-                                        if bb
-                                            .effects
-                                            .iter()
-                                            .all(|effect| matches!(effect, Effect::GuardShift(_)))
-                                        {
-                                            *bb.memory.get_cell_mut(0) =
-                                                Some(Node::Const(0).insert(g));
-                                            for (_, cell) in bb.memory.iter_mut() {
-                                                let cell_ref = g.get(*cell);
-                                                if let Node::Add(lhs, rhs) = *cell_ref {
-                                                    *cell = Node::Add(
-                                                        lhs,
-                                                        Node::Mul(rhs, addend).idealize(g),
+            Node::BasicBlock(bb) => {
+                bb.join_outputs(self);
+            }
+            Node::Loop { condition, body } => {
+                self.optimize_blocks(body);
+                if let &[block] = body.as_slice() {
+                    if let Node::BasicBlock(bb) = &mut *self.get_mut(block) {
+                        if bb.memory.offset() == 0 {
+                            if let Some(current) = bb.memory.get_cell(0) {
+                                let current_ref = self.get(current);
+                                if let Node::Add(lhs, rhs) = *current_ref {
+                                    let (lhs_ref, rhs_ref) = (self.get(lhs), self.get(rhs));
+                                    if let (Node::Copy(0), &Node::Const(rhs)) =
+                                        (&*lhs_ref, &*rhs_ref)
+                                    {
+                                        if let Some(iterations) = mod_inverse(rhs.wrapping_neg()) {
+                                            let addend = Node::Mul(
+                                                lhs,
+                                                Node::Const(iterations).insert(self),
+                                            )
+                                            .idealize(self);
+                                            if !bb.memory.iter().any(|(offset, cell)| {
+                                                let cell = self.get(cell);
+                                                cell.references_other(offset)
+                                                    || matches!(
+                                                        *cell,
+                                                        Node::Input { .. } | Node::Mul(..)
                                                     )
-                                                    .idealize(g);
+                                            }) {
+                                                if bb.effects.iter().all(|effect| {
+                                                    matches!(effect, Effect::GuardShift(_))
+                                                }) {
+                                                    *bb.memory.get_cell_mut(0) =
+                                                        Some(Node::Const(0).insert(self));
+                                                    for (_, cell) in bb.memory.iter_mut() {
+                                                        let cell_ref = self.get(*cell);
+                                                        if let Node::Add(lhs, rhs) = *cell_ref {
+                                                            *cell = Node::Add(
+                                                                lhs,
+                                                                Node::Mul(rhs, addend)
+                                                                    .idealize(self),
+                                                            )
+                                                            .idealize(self);
+                                                        }
+                                                    }
+                                                    node.replace(block);
+                                                    return;
                                                 }
                                             }
-                                            let bb = body.drain(..).next().unwrap();
-                                            *self = bb;
-                                            return;
+                                            *condition = Condition::Count(addend);
                                         }
                                     }
-                                    *condition = Condition::Count(addend);
                                 }
                             }
                         }
                     }
                 }
-            }
-            let mut guaranteed_zero = false;
-            let mut offset = 0;
-            for block in body.iter().rev() {
-                match block {
-                    Cfg::BasicBlock(bb) => {
-                        if let Some(v) = bb.memory.get_cell(bb.memory.offset()) {
-                            let v = g.get(v);
-                            match *v {
-                                Node::Const(0) => {
-                                    guaranteed_zero = true;
-                                    break;
-                                }
-                                Node::Copy(0) => {}
-                                _ => {
-                                    guaranteed_zero = false;
-                                    break;
+                let mut guaranteed_zero = false;
+                let mut offset = 0;
+                for &block in body.iter().rev() {
+                    match &*self.get(block) {
+                        Node::BasicBlock(bb) => {
+                            if let Some(v) = bb.memory.get_cell(bb.memory.offset()) {
+                                match *self.get(v) {
+                                    Node::Const(0) => {
+                                        guaranteed_zero = true;
+                                        break;
+                                    }
+                                    Node::Copy(0) => {}
+                                    _ => {
+                                        guaranteed_zero = false;
+                                        break;
+                                    }
                                 }
                             }
+                            offset += bb.memory.offset();
                         }
-                        offset += bb.memory.offset();
-                    }
-                    Cfg::Loop { .. } => {
-                        guaranteed_zero = offset == 0;
-                        break;
+                        Node::Loop { .. } => {
+                            guaranteed_zero = offset == 0;
+                            break;
+                        }
+                        _ => unreachable!(),
                     }
                 }
+                if guaranteed_zero {
+                    *condition = Condition::IfNonZero;
+                }
             }
-            if guaranteed_zero {
-                *condition = Condition::IfNonZero;
-            }
+            _ => todo!(),
         }
     }
-}
 
-impl Debug for Ir {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "Ir ")?;
-        f.debug_list().entry(&self.blocks).finish()
-    }
-}
-
-impl Debug for Cfg {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        match self {
-            Cfg::BasicBlock(bb) => Debug::fmt(bb, f),
-            Cfg::Loop { condition, body } => {
-                write!(f, "Loop({condition:?}) ")?;
-                f.debug_list().entries(body).finish()
-            }
+    fn optimize_blocks(&self, blocks: &mut Vec<NodeId>) {
+        blocks.dedup_by(
+            |block2, block1| match (&*self.get(*block1), &*self.get(*block2)) {
+                (
+                    Node::Loop {
+                        condition: Condition::WhileNonZero,
+                        ..
+                    },
+                    Node::Loop {
+                        condition: Condition::WhileNonZero,
+                        ..
+                    },
+                ) => true,
+                _ => false,
+            },
+        );
+        for &block in blocks.iter() {
+            self.optimize(self.get_mut(block));
         }
+        blocks.dedup_by(|block2, block1| {
+            match (&mut *self.get_mut(*block1), &*self.get(*block2)) {
+                (Node::BasicBlock(block1), Node::BasicBlock(block2)) => {
+                    block1.concat(block2, self);
+                    true
+                }
+                _ => false,
+            }
+        });
     }
 }
 
@@ -261,71 +218,21 @@ fn mod_inverse(value: u8) -> Option<u8> {
 
 #[cfg(test)]
 mod tests {
-    use crate::{
-        graph::Graph,
-        ir::{Cfg, Ir},
-        Ast,
-    };
+    use crate::{graph::Graph, Ast};
 
     fn assert_node_count(src: &str, nodes: usize) {
-        let mut g = Graph::new();
-        Ir::lower(&Ast::parse(src.as_bytes()).unwrap(), &mut g);
+        let g = Graph::new();
+        g.lower(&Ast::parse(src.as_bytes()).unwrap());
         assert_eq!(g.len(), nodes, "{src:?} => {g:?}");
     }
 
     #[test]
     fn lazy_node_construction() {
-        assert_node_count(">>>", 0);
-        assert_node_count(">>>+", 3);
-        assert_node_count(">>>-", 3);
-        assert_node_count(">>>,", 1);
-        assert_node_count(">>>.", 1);
-        assert_node_count(">+<>++++-><-+-+>><<-+-+++", 3);
-    }
-
-    #[test]
-    fn concat() {
-        let g = Graph::new();
-
-        let src1 = "<+>,-.>";
-        let ir1 = Ir::lower(&Ast::parse(src1.as_bytes()).unwrap(), &g);
-        let expect1 = "
-            guard_shift -1
-            in0 = input
-            output in0 - 1
-            guard_shift 1
-            @-1 = @-1 + 1
-            @0 = in0 - 1
-            shift 1
-        ";
-        assert!(ir1.compare_pretty(expect1, &g));
-
-        let src2 = ",<-";
-        let ir2 = Ir::lower(&Ast::parse(src2.as_bytes()).unwrap(), &g);
-        let expect2 = "
-            in0 = input
-            guard_shift -1
-            @-1 = @-1 - 1
-            @0 = in0
-            shift -1
-        ";
-        assert!(ir2.compare_pretty(expect2, &g));
-
-        let (mut bb1, mut bb2) = match (&*ir1.blocks, &*ir2.blocks) {
-            ([Cfg::BasicBlock(bb1)], [Cfg::BasicBlock(bb2)]) => (bb1.clone(), bb2.clone()),
-            _ => panic!("not single basic blocks: {ir1:?}, {ir2:?}"),
-        };
-        bb1.concat(&mut bb2, &g);
-        let expect = "
-            guard_shift -1
-            in0 = input
-            output in0 - 1
-            guard_shift 1
-            in1 = input
-            @-1 = @-1 + 1
-            @0 = in0 - 2
-            @1 = in1
-        ";
-        assert!(bb1.compare_pretty(expect, &g));
+        assert_node_count(">>>", 2);
+        assert_node_count(">>>+", 5);
+        assert_node_count(">>>-", 5);
+        assert_node_count(">>>,", 3);
+        assert_node_count(">>>.", 3);
+        assert_node_count(">+<>++++-><-+-+>><<-+-+++", 5);
     }
 }

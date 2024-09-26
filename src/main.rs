@@ -1,6 +1,6 @@
 use std::{env, fs, process};
 
-use bfrs::{graph::Graph, ir::Ir, Ast};
+use bfrs::{graph::Graph, Ast};
 
 fn main() {
     let args = env::args_os();
@@ -20,8 +20,8 @@ fn main() {
         eprintln!("parse error");
         process::exit(1);
     };
-    let mut g = Graph::new();
-    let mut ir = Ir::lower(&ast, &mut g);
-    ir.optimize(&mut g);
-    print!("{}", ir.pretty(&g));
+    let g = Graph::new();
+    let ir = g.lower(&ast);
+    g.optimize(g.get_mut(ir));
+    print!("{}", g.get(ir));
 }

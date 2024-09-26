@@ -1,13 +1,30 @@
 use std::{cmp::Ordering, collections::BTreeSet, isize, mem, usize};
 
-use crate::graph::{hash_arena::ArenaRef, Graph, NodeId};
+use crate::{
+    graph::{hash_arena::ArenaRef, Graph, NodeId},
+    region::Region,
+};
 
 // TODO:
+// - Make a Bool node type to replace Condition.
 // - Reuse scratch sets for ordering Byte.
 
 /// A node in a graph.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Node {
+    // Control flow.
+    /// The root of the IR.
+    Root { blocks: Vec<NodeId> },
+    /// A basic block of non-branching instructions.
+    BasicBlock(Region),
+    /// Loop while some condition is true.
+    Loop {
+        /// Loop condition.
+        condition: Condition,
+        /// The contained blocks.
+        body: Vec<NodeId>,
+    },
+
     // Byte values.
     /// Copy the byte from the cell at the offset.
     Copy(isize),
@@ -27,8 +44,20 @@ pub enum Node {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum NodeType {
+    Control,
     Byte,
     Array,
+}
+
+/// A loop condition.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub enum Condition {
+    /// Loop while the current cell is non-zero.
+    WhileNonZero,
+    /// Execute if the current cell is non-zero.
+    IfNonZero,
+    /// Loop a fixed number of times. The value must be a byte.
+    Count(NodeId),
 }
 
 impl Node {
@@ -150,6 +179,7 @@ impl Node {
 
     pub fn ty(&self) -> NodeType {
         match self {
+            Node::Root { .. } | Node::BasicBlock(_) | Node::Loop { .. } => NodeType::Control,
             Node::Copy(_) | Node::Const(_) | Node::Input { .. } | Node::Add(..) | Node::Mul(..) => {
                 NodeType::Byte
             }
@@ -162,6 +192,9 @@ impl ArenaRef<'_, Node> {
     /// Returns whether this node references a cell besides at the given offset.
     pub fn references_other(&self, offset: isize) -> bool {
         match *self.value() {
+            Node::Root { .. } | Node::BasicBlock(_) | Node::Loop { .. } => {
+                panic!("unexpected control node")
+            }
             Node::Copy(offset2) => offset2 != offset,
             Node::Const(_) | Node::Input { .. } => false,
             Node::Add(lhs, rhs) | Node::Mul(lhs, rhs) => {
@@ -234,6 +267,9 @@ impl ArenaRef<'_, Node> {
 
     fn min_terms_(&self, min_offset: &mut isize, min_input: &mut usize) {
         match *self.value() {
+            Node::Root { .. } | Node::BasicBlock(_) | Node::Loop { .. } => {
+                panic!("unexpected control node")
+            }
             Node::Copy(offset) => {
                 debug_assert!(offset != isize::MAX);
                 *min_offset = offset.min(*min_offset);
@@ -261,6 +297,9 @@ impl ArenaRef<'_, Node> {
 
     fn offsets(&self, offsets: &mut BTreeSet<isize>) {
         match *self.value() {
+            Node::Root { .. } | Node::BasicBlock(_) | Node::Loop { .. } => {
+                panic!("unexpected control node")
+            }
             Node::Copy(offset) => {
                 offsets.insert(offset);
             }
@@ -279,6 +318,9 @@ impl ArenaRef<'_, Node> {
 
     fn inputs(&self, inputs: &mut BTreeSet<usize>) {
         match *self.value() {
+            Node::Root { .. } | Node::BasicBlock(_) | Node::Loop { .. } => {
+                panic!("unexpected control node")
+            }
             Node::Copy(_) | Node::Const(_) => {}
             Node::Input { id } => {
                 inputs.insert(id);

@@ -10,7 +10,7 @@ use crate::{
 };
 
 /// Abstract model of memory. It is constructed with `MemoryBuilder`.
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub struct Memory {
     /// The values modified in this memory.
     memory: VecDeque<Option<NodeId>>,

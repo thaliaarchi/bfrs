@@ -1,11 +1,14 @@
-#[cfg(debug_assertions)]
-use crate::node::NodeType;
 use crate::{
     graph::{
         arena::Id,
         hash_arena::{ArenaRef, HashArena},
     },
     node::Node,
+};
+#[cfg(debug_assertions)]
+use crate::{
+    node::{Condition, NodeType},
+    region::Effect,
 };
 
 /// A graph of unique nodes, structured as an arena.
@@ -23,14 +26,54 @@ pub type NodeId = Id<Node>;
 impl Graph {
     fn assert_byte(&self, id: NodeId) {
         self.assert_id(id);
-        assert!(
-            matches!(unsafe { self.get_unchecked(id) }.ty(), NodeType::Byte),
+        assert_eq!(
+            unsafe { self.get_unchecked(id) }.ty(),
+            NodeType::Byte,
             "node is not a byte",
         );
     }
 
     fn assert_node(&self, node: &Node) {
         match node {
+            Node::Root { blocks } | Node::Loop { body: blocks, .. } => {
+                for &block in blocks {
+                    self.assert_id(block);
+                    assert!(
+                        matches!(
+                            unsafe { self.get_unchecked(block) },
+                            Node::BasicBlock(_) | Node::Loop { .. },
+                        ),
+                        "node is not a control node",
+                    );
+                }
+                if let Node::Loop { condition, .. } = node {
+                    match *condition {
+                        Condition::WhileNonZero | Condition::IfNonZero => {}
+                        Condition::Count(id) => self.assert_byte(id),
+                    }
+                }
+            }
+            Node::BasicBlock(region) => {
+                for (_, cell) in region.memory.iter() {
+                    self.assert_byte(cell);
+                }
+                for effect in &region.effects {
+                    match *effect {
+                        Effect::Output(id) => {
+                            self.assert_id(id);
+                            assert!(
+                                matches!(
+                                    unsafe { self.get_unchecked(id) }.ty(),
+                                    NodeType::Byte | NodeType::Array,
+                                ),
+                                "node is not a byte or array",
+                            );
+                        }
+                        Effect::Input(id) => self.assert_byte(id),
+                        Effect::GuardShift(_) => {}
+                    }
+                }
+            }
             Node::Copy(_) | Node::Const(_) | Node::Input { .. } => {}
             &Node::Add(lhs, rhs) | &Node::Mul(lhs, rhs) => {
                 self.assert_byte(lhs);
@@ -52,7 +95,11 @@ impl Node {
         #[cfg(debug_assertions)]
         g.assert_node(&self);
         match &self {
-            Node::Copy(_) | Node::Input { .. } => g.insert_unique(self),
+            Node::Root { .. }
+            | Node::BasicBlock(_)
+            | Node::Loop { .. }
+            | Node::Copy(_)
+            | Node::Input { .. } => g.insert_unique(self),
             Node::Const(_) | Node::Add(..) | Node::Mul(..) | Node::Array(_) => g.insert(self),
         }
     }

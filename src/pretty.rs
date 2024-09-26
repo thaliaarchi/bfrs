@@ -1,9 +1,8 @@
-use std::fmt::{self, Debug, Formatter, Write};
+use std::fmt::{self, Display, Formatter, Write};
 
 use crate::{
-    graph::{hash_arena::ArenaRef, Graph},
-    ir::{Cfg, Condition, Ir},
-    node::Node,
+    graph::{hash_arena::ArenaRef, Graph, NodeId},
+    node::{Condition, Node},
     region::{Effect, Region},
 };
 
@@ -22,39 +21,118 @@ impl<'a> PrettyPrinter<'a> {
         }
     }
 
-    fn pretty_blocks(&mut self, blocks: &[Cfg], g: &Graph, indent: usize) -> fmt::Result {
-        if let [Cfg::BasicBlock(bb)] = blocks {
-            self.pretty_region(bb, g, indent)
-        } else if let [block] = blocks {
-            self.pretty_ir(block, g, indent)
+    fn pretty_blocks(&mut self, blocks: &[NodeId], g: &Graph, indent: usize) -> fmt::Result {
+        if let &[block] = blocks {
+            let block = g.get(block);
+            if let Node::BasicBlock(bb) = &*block {
+                self.pretty_region(bb, g, indent)
+            } else {
+                self.pretty_node(&block, indent)
+            }
         } else {
-            for block in blocks {
-                self.pretty_ir(block, g, indent)?;
+            for &block in blocks {
+                let block = g.get(block);
+                if let Node::BasicBlock(bb) = &*block {
+                    self.indent(indent)?;
+                    write!(self.w, "{{\n")?;
+                    self.pretty_region(bb, g, indent + 1)?;
+                    self.indent(indent)?;
+                    write!(self.w, "}}\n")?;
+                } else {
+                    self.pretty_node(&block, indent)?;
+                }
             }
             Ok(())
         }
     }
 
-    fn pretty_ir(&mut self, ir: &Cfg, g: &Graph, indent: usize) -> fmt::Result {
-        match ir {
-            Cfg::BasicBlock(bb) => {
-                self.indent(indent)?;
-                write!(self.w, "{{\n")?;
-                self.pretty_region(bb, g, indent + 1)?;
-                self.indent(indent)?;
-                write!(self.w, "}}\n")
+    fn pretty_node(&mut self, node: &ArenaRef<'_, Node>, indent: usize) -> fmt::Result {
+        fn group(f: &mut dyn Write, grouped: bool, node: ArenaRef<'_, Node>) -> fmt::Result {
+            if grouped {
+                write!(f, "({node})")
+            } else {
+                write!(f, "{node}")
             }
-            Cfg::Loop { condition, body } => {
+        }
+        let g = node.graph();
+        match node.value() {
+            Node::Root { blocks } => self.pretty_blocks(blocks, g, indent),
+            Node::BasicBlock(bb) => self.pretty_region(bb, g, indent),
+            Node::Loop { condition, body } => {
                 self.indent(indent)?;
                 match *condition {
                     Condition::WhileNonZero => write!(self.w, "while @0 != 0")?,
                     Condition::IfNonZero => write!(self.w, "if @0 != 0")?,
-                    Condition::Count(count) => write!(self.w, "repeat {:?} times", g.get(count))?,
+                    Condition::Count(count) => write!(self.w, "repeat {} times", g.get(count))?,
                 }
                 write!(self.w, " {{\n")?;
                 self.pretty_blocks(body, g, indent + 1)?;
                 self.indent(indent)?;
                 write!(self.w, "}}\n")
+            }
+            &Node::Copy(offset) => write!(self.w, "@{offset}"),
+            &Node::Const(value) => write!(self.w, "{}", value as i8),
+            &Node::Input { id } => write!(self.w, "in{id}"),
+            &Node::Add(lhs, rhs) => {
+                let (lhs, rhs) = (g.get(lhs), g.get(rhs));
+                write!(self.w, "{}", lhs)?;
+                if let Node::Const(rhs) = *rhs {
+                    if (rhs as i8) < 0 {
+                        return write!(self.w, " - {}", (rhs as i8).unsigned_abs());
+                    }
+                }
+                write!(self.w, " + ")?;
+                group(self.w, matches!(*rhs, Node::Add(..)), rhs)
+            }
+            &Node::Mul(lhs, rhs) => {
+                let (lhs, rhs) = (g.get(lhs), g.get(rhs));
+                group(self.w, matches!(*lhs, Node::Add(..)), lhs)?;
+                write!(self.w, " * ")?;
+                group(self.w, matches!(*rhs, Node::Add(..) | Node::Mul(..)), rhs)
+            }
+            Node::Array(elements) => {
+                fn write_char(w: &mut dyn Write, ch: u8) -> fmt::Result {
+                    match ch {
+                        b'\0' => write!(w, "\\0"),
+                        b'\t' => write!(w, "\\t"),
+                        b'\n' => write!(w, "\\n"),
+                        b'\r' => write!(w, "\\r"),
+                        b'\\' => write!(w, "\\\\"),
+                        _ if ch.is_ascii() && !ch.is_ascii_control() => {
+                            write!(w, "{}", ch as char)
+                        }
+                        _ => write!(w, "\\x{ch:02x}"),
+                    }
+                }
+                if elements
+                    .iter()
+                    .all(|&e| matches!(*g.get(e), Node::Const(_)))
+                {
+                    write!(self.w, "\"")?;
+                    for &e in elements {
+                        let Node::Const(ch) = *g.get(e) else {
+                            unreachable!();
+                        };
+                        write_char(self.w, ch)?;
+                    }
+                    write!(self.w, "\"")
+                } else {
+                    write!(self.w, "[")?;
+                    for (i, &e) in elements.iter().enumerate() {
+                        if i != 0 {
+                            write!(self.w, ", ")?;
+                        }
+                        let e = g.get(e);
+                        if let Node::Const(ch) = *e {
+                            write!(self.w, "'")?;
+                            write_char(self.w, ch)?;
+                            write!(self.w, "'")?;
+                        } else {
+                            write!(self.w, "{e}")?;
+                        }
+                    }
+                    write!(self.w, "]")
+                }
             }
         }
     }
@@ -69,11 +147,11 @@ impl<'a> PrettyPrinter<'a> {
             self.indent(indent)?;
             match *effect {
                 Effect::Output(value) => {
-                    write!(self.w, "output {:?}", g.get(value))?;
+                    write!(self.w, "output {}", g.get(value))?;
                 }
                 Effect::Input(value) => {
                     let value = g.get(value);
-                    write!(self.w, "{:?} = input", value)?;
+                    write!(self.w, "{value} = input")?;
                     if let Node::Input { id } = *value {
                         if id != inputs {
                             write!(self.w, " # BUG: unordered")?;
@@ -121,7 +199,7 @@ impl<'a> PrettyPrinter<'a> {
             let node = g.get(node);
             if *node != Node::Copy(offset) {
                 self.indent(indent)?;
-                write!(self.w, "@{offset} = {:?}\n", node)?;
+                write!(self.w, "@{offset} = {node}\n")?;
             }
         }
 
@@ -142,144 +220,26 @@ impl<'a> PrettyPrinter<'a> {
     }
 }
 
-impl Debug for ArenaRef<'_, Node> {
+impl Display for ArenaRef<'_, Node> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        fn group(f: &mut Formatter<'_>, grouped: bool, node: ArenaRef<'_, Node>) -> fmt::Result {
-            if grouped {
-                write!(f, "({node:?})")
-            } else {
-                write!(f, "{node:?}")
-            }
+        PrettyPrinter::new(f).pretty_node(self, 0)
+    }
+}
+
+impl ArenaRef<'_, Node> {
+    pub fn compare_pretty(&self, expect: &str) -> bool {
+        let got = self.to_string();
+        let expect = unindent(expect);
+        if got == expect {
+            true
+        } else {
+            println!("<<<<<<< Expect");
+            print!("{expect}");
+            println!("=======");
+            print!("{got}");
+            println!(">>>>>>> Got");
+            false
         }
-        let g = self.graph();
-        match *self.value() {
-            Node::Copy(offset) => write!(f, "@{offset}"),
-            Node::Const(value) => write!(f, "{}", value as i8),
-            Node::Input { id } => write!(f, "in{id}"),
-            Node::Add(lhs, rhs) => {
-                let (lhs, rhs) = (g.get(lhs), g.get(rhs));
-                write!(f, "{:?}", lhs)?;
-                if let Node::Const(rhs) = *rhs {
-                    if (rhs as i8) < 0 {
-                        return write!(f, " - {}", (rhs as i8).unsigned_abs());
-                    }
-                }
-                write!(f, " + ")?;
-                group(f, matches!(*rhs, Node::Add(..)), rhs)
-            }
-            Node::Mul(lhs, rhs) => {
-                let (lhs, rhs) = (g.get(lhs), g.get(rhs));
-                group(f, matches!(*lhs, Node::Add(..)), lhs)?;
-                write!(f, " * ")?;
-                group(f, matches!(*rhs, Node::Add(..) | Node::Mul(..)), rhs)
-            }
-            Node::Array(ref elements) => {
-                fn write_char(w: &mut dyn Write, ch: u8) -> fmt::Result {
-                    match ch {
-                        b'\0' => write!(w, "\\0"),
-                        b'\t' => write!(w, "\\t"),
-                        b'\n' => write!(w, "\\n"),
-                        b'\r' => write!(w, "\\r"),
-                        b'\\' => write!(w, "\\\\"),
-                        _ if ch.is_ascii() && !ch.is_ascii_control() => write!(w, "{}", ch as char),
-                        _ => write!(w, "\\x{ch:02x}"),
-                    }
-                }
-                if elements
-                    .iter()
-                    .all(|&e| matches!(*g.get(e), Node::Const(_)))
-                {
-                    write!(f, "\"")?;
-                    for &e in elements {
-                        let Node::Const(ch) = *g.get(e) else {
-                            unreachable!();
-                        };
-                        write_char(f, ch)?;
-                    }
-                    write!(f, "\"")
-                } else {
-                    write!(f, "[")?;
-                    for (i, &e) in elements.iter().enumerate() {
-                        if i != 0 {
-                            write!(f, ", ")?;
-                        }
-                        let e = g.get(e);
-                        if let Node::Const(ch) = *e {
-                            write!(f, "'")?;
-                            write_char(f, ch)?;
-                            write!(f, "'")?;
-                        } else {
-                            write!(f, "{:?}", e)?;
-                        }
-                    }
-                    write!(f, "]")
-                }
-            }
-        }
-    }
-}
-
-impl Ir {
-    pub fn pretty(&self, g: &Graph) -> String {
-        let mut s = String::new();
-        self.write_pretty(&mut s, g).unwrap();
-        s
-    }
-
-    pub fn write_pretty(&self, w: &mut dyn Write, g: &Graph) -> fmt::Result {
-        PrettyPrinter::new(w).pretty_blocks(&self.blocks, g, 0)
-    }
-
-    pub fn compare_pretty(&self, expect: &str, g: &Graph) -> bool {
-        let mut s = String::new();
-        self.write_pretty(&mut s, g).unwrap();
-        compare_pretty(&s, expect)
-    }
-}
-
-impl Cfg {
-    pub fn pretty(&self, g: &Graph) -> String {
-        let mut s = String::new();
-        self.write_pretty(&mut s, g).unwrap();
-        s
-    }
-
-    pub fn write_pretty(&self, w: &mut dyn Write, g: &Graph) -> fmt::Result {
-        PrettyPrinter::new(w).pretty_ir(self, g, 0)
-    }
-
-    pub fn compare_pretty(&self, expect: &str, g: &Graph) -> bool {
-        compare_pretty(&self.pretty(g), expect)
-    }
-}
-
-impl Region {
-    pub fn pretty(&self, g: &Graph) -> String {
-        let mut s = String::new();
-        self.write_pretty(&mut s, g).unwrap();
-        s
-    }
-
-    pub fn write_pretty(&self, w: &mut dyn Write, g: &Graph) -> fmt::Result {
-        PrettyPrinter::new(w).pretty_region(self, g, 0)
-    }
-
-    pub fn compare_pretty(&self, expect: &str, g: &Graph) -> bool {
-        compare_pretty(&self.pretty(g), expect)
-    }
-}
-
-fn compare_pretty(got: &str, expect: &str) -> bool {
-    let expect = unindent(expect);
-    if got == expect {
-        true
-    } else {
-        println!("<<<<<<< Expect");
-        print!("{expect}");
-        println!("=======");
-        print!("{got}");
-        println!(">>>>>>> Got");
-        false
     }
 }
 
