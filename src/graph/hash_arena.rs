@@ -267,6 +267,15 @@ impl<'a, T: Eq + Hash> ArenaRefMut<'a, T> {
         &mut *self.value
     }
 
+    pub fn replace(mut self, replacement: Id<T>) {
+        let arena = self.arena;
+        let index = self.index;
+        self.unique = true;
+        drop(self);
+        let entry = unsafe { arena.arena.get_unchecked_mut(index) };
+        *entry = Entry::Replaced(replacement.index());
+    }
+
     pub fn arena(&self) -> &'a HashArena<T> {
         self.arena
     }
