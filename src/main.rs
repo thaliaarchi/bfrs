@@ -1,4 +1,8 @@
-use std::{env, fs, process};
+use std::{
+    env, fs,
+    io::{stdout, BufWriter, Write},
+    process,
+};
 
 use bfrs::{graph::Graph, Ast};
 
@@ -23,5 +27,6 @@ fn main() {
     let g = Graph::new();
     let ir = g.lower(&ast);
     g.optimize(g.get_mut(ir));
-    print!("{}", g.get(ir).to_string());
+    let mut w = BufWriter::new(stdout().lock());
+    write!(w, "{}", g.get(ir)).unwrap();
 }
