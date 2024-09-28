@@ -23,5 +23,5 @@ fn main() {
     let g = Graph::new();
     let ir = g.lower(&ast);
     g.optimize(g.get_mut(ir));
-    print!("{}", g.get(ir));
+    print!("{}", g.get(ir).to_string());
 }
