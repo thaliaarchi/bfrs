@@ -13,16 +13,16 @@ use glob::glob;
 fn test_lower(src: &str, expect: &str) {
     let g = Graph::new();
     let ast = Ast::parse(src.as_bytes()).unwrap();
-    let ir = g.lower(&ast);
-    assert!(g.get(ir).compare_pretty(expect));
+    let root = g.lower(&ast);
+    assert!(g.get(root).compare_pretty(expect));
 }
 
 fn test_optimize(src: &str, expect: &str) {
     let g = Graph::new();
     let ast = Ast::parse(src.as_bytes()).unwrap();
-    let ir = g.lower(&ast);
-    g.optimize(g.get_mut(ir));
-    assert!(g.get(ir).compare_pretty(expect));
+    let root = g.lower(&ast);
+    g.optimize(root);
+    assert!(g.get(root).compare_pretty(expect));
 }
 
 fn test_lower_file(src_path: &str, expect_path: &str) {
@@ -384,7 +384,7 @@ fn inner_loops() {
                 .entry(format!("{loop_ast}"))
                 .or_insert_with(|| {
                     let loop_ir = g.lower(&Ast::Root(vec![loop_ast.clone()]));
-                    g.optimize(g.get_mut(loop_ir));
+                    g.optimize(loop_ir);
                     (loop_ir, BTreeSet::new())
                 })
                 .1

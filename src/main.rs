@@ -25,8 +25,8 @@ fn main() {
         process::exit(1);
     };
     let g = Graph::new();
-    let ir = g.lower(&ast);
-    g.optimize(g.get_mut(ir));
+    let root = g.lower(&ast);
+    g.optimize(root);
     let mut w = BufWriter::new(stdout().lock());
-    write!(w, "{}", g.get(ir)).unwrap();
+    write!(w, "{}", g.get(root)).unwrap();
 }

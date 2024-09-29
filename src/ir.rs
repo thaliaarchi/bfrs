@@ -1,5 +1,5 @@
 use crate::{
-    graph::{hash_arena::ArenaRefMut, Graph, NodeId},
+    graph::{Graph, NodeId},
     memory::MemoryBuilder,
     node::{Condition, Node},
     region::{Effect, Region},
@@ -49,7 +49,8 @@ impl Graph {
         ir
     }
 
-    pub fn optimize<'g>(&'g self, mut node: ArenaRefMut<'g, Node>) {
+    pub fn optimize<'g>(&'g self, node: NodeId) {
+        let mut node = self.get_mut(node);
         match node.value_mut() {
             Node::Root { blocks } => {
                 let first_non_loop = blocks
@@ -168,7 +169,7 @@ impl Graph {
             },
         );
         for &block in blocks.iter() {
-            self.optimize(self.get_mut(block));
+            self.optimize(block);
         }
         blocks.dedup_by(|block2, block1| {
             match (&mut *self.get_mut(*block1), &*self.get(*block2)) {
