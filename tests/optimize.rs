@@ -407,13 +407,14 @@ fn report_inner_loops() {
         .iter()
         .partition(|(_, stats)| stats.is_balanced());
 
-    let mut out = File::create("inner_loops.txt").unwrap();
-    writeln!(out, "Balanced loops:").unwrap();
+    let mut out = File::create("inner_loops.md").unwrap();
+    writeln!(out, "# Inner loops\n").unwrap();
+    writeln!(out, "## Balanced loops").unwrap();
     for (ast, inner_loop) in &balanced_loops {
         writeln!(out).unwrap();
         inner_loop.print(&mut out, ast);
     }
-    writeln!(out, "\n\nUnbalanced loops:").unwrap();
+    writeln!(out, "\n\n## Unbalanced loops").unwrap();
     for (ast, inner_loop) in &unbalanced_loops {
         writeln!(out).unwrap();
         inner_loop.print(&mut out, ast);
@@ -476,14 +477,15 @@ fn get_loop_region(g: &Graph, root: NodeId, ast: &Ast) -> Option<Region> {
 
 impl InnerLoopStats {
     fn print(&self, w: &mut dyn Write, ast: &str) {
-        writeln!(w, "{ast}").unwrap();
-        write!(w, "Unoptimized:\n{}", self.unoptimized).unwrap();
+        writeln!(w, "```brainfuck\n{ast}\n```").unwrap();
+        writeln!(w, "Unoptimized:\n```ir\n{}```", self.unoptimized).unwrap();
         if self.unoptimized != self.optimized {
-            write!(w, "Optimized:\n{}", self.optimized).unwrap();
+            writeln!(w, "Optimized:\n```ir\n{}```", self.optimized).unwrap();
         }
         for path in &self.paths {
-            writeln!(w, "    {path}").unwrap();
+            writeln!(w, "- {path}").unwrap();
         }
+        writeln!(w, "\n---").unwrap();
     }
 
     fn is_balanced(&self) -> bool {
