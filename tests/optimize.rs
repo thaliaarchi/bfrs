@@ -384,6 +384,7 @@ fn inner_loops() {
                 .entry(format!("{loop_ast}"))
                 .or_insert_with(|| {
                     let loop_ir = g.lower(&Ast::Root(vec![loop_ast.clone()]));
+                    g.combine_guards(loop_ir);
                     g.optimize(loop_ir);
                     (loop_ir, BTreeSet::new())
                 })

@@ -181,6 +181,34 @@ impl Graph {
             }
         });
     }
+
+    /// Combines adjacent `guard_shift` effects. Once guards are annotated with
+    /// source locations, this will produce incorrect attributions on panic.
+    /// This does not fold alternating left and right guards.
+    pub fn combine_guards(&self, node: NodeId) {
+        let mut node = self.get_mut(node);
+        match node.value_mut() {
+            Node::BasicBlock(bb) => {
+                bb.effects
+                    .dedup_by(|effect2, effect1| match (effect1, effect2) {
+                        (Effect::GuardShift(shift1), Effect::GuardShift(shift2))
+                            if *shift1 < 0 && *shift2 < *shift1
+                                || *shift1 > 0 && *shift2 > *shift1 =>
+                        {
+                            *shift1 = *shift2;
+                            true
+                        }
+                        _ => false,
+                    });
+            }
+            Node::Root { blocks } | Node::Loop { body: blocks, .. } => {
+                for block in blocks {
+                    self.combine_guards(*block);
+                }
+            }
+            _ => {}
+        }
+    }
 }
 
 /// Computes the multiplicative inverse of a number (mod 256).
