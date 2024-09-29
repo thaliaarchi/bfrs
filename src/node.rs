@@ -198,12 +198,11 @@ impl ArenaRef<'_, Node> {
             Node::Copy(offset2) => offset2 != offset,
             Node::Const(_) | Node::Input { .. } => false,
             Node::Add(lhs, rhs) | Node::Mul(lhs, rhs) => {
-                self.graph().get(lhs).references_other(offset)
-                    || self.graph().get(rhs).references_other(offset)
+                self.get(lhs).references_other(offset) || self.get(rhs).references_other(offset)
             }
             Node::Array(ref elements) => elements
                 .iter()
-                .any(|&e| self.graph().get(e).references_other(offset)),
+                .any(|&e| self.get(e).references_other(offset)),
         }
     }
 
@@ -280,16 +279,16 @@ impl ArenaRef<'_, Node> {
                 *min_input = id.min(*min_input);
             }
             Node::Add(lhs, rhs) => {
-                self.graph().get(lhs).min_terms_(min_offset, min_input);
-                self.graph().get(rhs).min_terms_(min_offset, min_input);
+                self.get(lhs).min_terms_(min_offset, min_input);
+                self.get(rhs).min_terms_(min_offset, min_input);
             }
             Node::Mul(lhs, rhs) => {
-                self.graph().get(lhs).min_terms_(min_offset, min_input);
-                self.graph().get(rhs).min_terms_(min_offset, min_input);
+                self.get(lhs).min_terms_(min_offset, min_input);
+                self.get(rhs).min_terms_(min_offset, min_input);
             }
             Node::Array(ref elements) => {
                 for &e in elements {
-                    self.graph().get(e).min_terms_(min_offset, min_input);
+                    self.get(e).min_terms_(min_offset, min_input);
                 }
             }
         }
@@ -305,12 +304,12 @@ impl ArenaRef<'_, Node> {
             }
             Node::Const(_) | Node::Input { .. } => {}
             Node::Add(lhs, rhs) | Node::Mul(lhs, rhs) => {
-                self.graph().get(lhs).offsets(offsets);
-                self.graph().get(rhs).offsets(offsets);
+                self.get(lhs).offsets(offsets);
+                self.get(rhs).offsets(offsets);
             }
             Node::Array(ref elements) => {
                 for &e in elements {
-                    self.graph().get(e).offsets(offsets);
+                    self.get(e).offsets(offsets);
                 }
             }
         }
@@ -326,12 +325,12 @@ impl ArenaRef<'_, Node> {
                 inputs.insert(id);
             }
             Node::Add(lhs, rhs) | Node::Mul(lhs, rhs) => {
-                self.graph().get(lhs).inputs(inputs);
-                self.graph().get(rhs).inputs(inputs);
+                self.get(lhs).inputs(inputs);
+                self.get(rhs).inputs(inputs);
             }
             Node::Array(ref elements) => {
                 for &e in elements {
-                    self.graph().get(e).inputs(inputs);
+                    self.get(e).inputs(inputs);
                 }
             }
         }
