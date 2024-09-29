@@ -379,7 +379,7 @@ fn inner_loops() {
             .unwrap();
         let src = fs::read(&path).unwrap();
         let ast = Ast::parse(&src).unwrap();
-        each_inner_loop(&ast, &mut |loop_ast| {
+        each_inner_loop(&ast, true, &mut |loop_ast| {
             inner_loops
                 .entry(format!("{loop_ast}"))
                 .or_insert_with(|| {
@@ -406,22 +406,21 @@ fn inner_loops() {
     }
 }
 
-fn each_inner_loop(ast: &Ast, each: &mut impl FnMut(&Ast)) -> bool {
+fn each_inner_loop(ast: &Ast, after_zero: bool, each: &mut impl FnMut(&Ast)) -> bool {
     match ast {
         Ast::Right | Ast::Left | Ast::Inc | Ast::Dec | Ast::Output | Ast::Input => true,
-        Ast::Loop(body) => {
-            let mut is_inner = true;
+        Ast::Loop(body) | Ast::Root(body) => {
+            let mut is_inner_loop = true;
+            let mut child_after_zero = after_zero;
             for ast in body {
-                is_inner &= each_inner_loop(ast, each);
+                is_inner_loop &= each_inner_loop(ast, child_after_zero, each);
+                // Overly simplistic dead code elimination, intended only for
+                // comment loops.
+                child_after_zero =
+                    matches!(ast, Ast::Loop(_)) || child_after_zero && ast == &Ast::Output;
             }
-            if is_inner {
+            if is_inner_loop && !after_zero && matches!(ast, Ast::Loop(_)) {
                 each(ast);
-            }
-            false
-        }
-        Ast::Root(body) => {
-            for ast in body {
-                each_inner_loop(ast, each);
             }
             false
         }
