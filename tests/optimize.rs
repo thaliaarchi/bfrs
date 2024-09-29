@@ -6,6 +6,8 @@ use std::{
 
 use bfrs::{
     graph::{Graph, NodeId},
+    node::{Condition, Node},
+    region::Region,
     Ast,
 };
 use glob::glob;
@@ -364,8 +366,8 @@ fn missed_optimizations() {
 
 #[test]
 #[ignore = "generates a report"]
-fn inner_loops() {
-    let mut inner_loops = BTreeMap::<String, (NodeId, BTreeSet<String>)>::new();
+fn report_inner_loops() {
+    let mut inner_loops = BTreeMap::<String, InnerLoopStats>::new();
     let g = Graph::new();
     for path in glob("tests/third_party/**/*.b")
         .unwrap()
@@ -385,26 +387,44 @@ fn inner_loops() {
                 .or_insert_with(|| {
                     let loop_ir = g.lower(&Ast::Root(vec![loop_ast.clone()]));
                     g.combine_guards(loop_ir);
+                    let region = get_loop_region(&g, loop_ir, loop_ast);
+                    let unoptimized = g.get(loop_ir).to_string();
                     g.optimize(loop_ir);
-                    (loop_ir, BTreeSet::new())
+                    let optimized = g.get(loop_ir).to_string();
+                    InnerLoopStats {
+                        region,
+                        unoptimized,
+                        optimized,
+                        paths: BTreeSet::new(),
+                    }
                 })
-                .1
+                .paths
                 .insert(relative_path.to_owned());
         });
     }
+
+    let (balanced_loops, unbalanced_loops): (BTreeMap<_, _>, _) = inner_loops
+        .iter()
+        .partition(|(_, stats)| stats.is_balanced());
+
     let mut out = File::create("inner_loops.txt").unwrap();
-    let mut first = true;
-    for (ast, (ir, paths)) in &inner_loops {
-        if !first {
-            writeln!(out).unwrap();
-        }
-        first = false;
-        writeln!(out, "{ast}").unwrap();
-        write!(out, "{}", g.get(*ir)).unwrap();
-        for path in paths {
-            writeln!(out, "    {path}").unwrap();
-        }
+    writeln!(out, "Balanced loops:").unwrap();
+    for (ast, inner_loop) in &balanced_loops {
+        writeln!(out).unwrap();
+        inner_loop.print(&mut out, ast);
     }
+    writeln!(out, "\n\nUnbalanced loops:").unwrap();
+    for (ast, inner_loop) in &unbalanced_loops {
+        writeln!(out).unwrap();
+        inner_loop.print(&mut out, ast);
+    }
+}
+
+struct InnerLoopStats {
+    region: Option<Region>,
+    unoptimized: String,
+    optimized: String,
+    paths: BTreeSet<String>,
 }
 
 fn each_inner_loop(ast: &Ast, after_zero: bool, each: &mut impl FnMut(&Ast)) -> bool {
@@ -425,5 +445,51 @@ fn each_inner_loop(ast: &Ast, after_zero: bool, each: &mut impl FnMut(&Ast)) -> 
             }
             false
         }
+    }
+}
+
+fn get_loop_region(g: &Graph, root: NodeId, ast: &Ast) -> Option<Region> {
+    let Node::Root { blocks } = &*g.get(root) else {
+        panic!("not root: {ast}");
+    };
+    let &[block] = blocks.as_slice() else {
+        panic!("not one block: {ast}");
+    };
+    let Node::Loop {
+        condition: Condition::WhileNonZero,
+        body,
+    } = &*g.get(block)
+    else {
+        panic!("not a loop: {ast}");
+    };
+    if body.is_empty() {
+        return None;
+    }
+    let &[block] = body.as_slice() else {
+        panic!("not a basic block in a loop: {ast}");
+    };
+    let Node::BasicBlock(region) = &*g.get(block) else {
+        panic!("not a basic block in a loop: {ast}");
+    };
+    Some(region.clone())
+}
+
+impl InnerLoopStats {
+    fn print(&self, w: &mut dyn Write, ast: &str) {
+        writeln!(w, "{ast}").unwrap();
+        write!(w, "Unoptimized:\n{}", self.unoptimized).unwrap();
+        if self.unoptimized != self.optimized {
+            write!(w, "Optimized:\n{}", self.optimized).unwrap();
+        }
+        for path in &self.paths {
+            writeln!(w, "    {path}").unwrap();
+        }
+    }
+
+    fn is_balanced(&self) -> bool {
+        !self
+            .region
+            .as_ref()
+            .is_some_and(|region| region.memory.offset() != 0)
     }
 }
