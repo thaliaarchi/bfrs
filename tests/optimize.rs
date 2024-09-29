@@ -1,6 +1,14 @@
-use std::fs;
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fs::{self, File},
+    io::Write,
+};
 
-use bfrs::{graph::Graph, Ast};
+use bfrs::{
+    graph::{Graph, NodeId},
+    Ast,
+};
+use glob::glob;
 
 fn test_lower(src: &str, expect: &str) {
     let g = Graph::new();
@@ -352,4 +360,70 @@ fn missed_optimizations() {
             }
         ",
     );
+}
+
+#[test]
+#[ignore = "generates a report"]
+fn inner_loops() {
+    let mut inner_loops = BTreeMap::<String, (NodeId, BTreeSet<String>)>::new();
+    let g = Graph::new();
+    for path in glob("tests/third_party/**/*.b")
+        .unwrap()
+        .chain(glob("tests/third_party/**/*.bf").unwrap())
+    {
+        let path = path.unwrap();
+        let relative_path = path
+            .to_str()
+            .unwrap()
+            .strip_prefix("tests/third_party/")
+            .unwrap();
+        let src = fs::read(&path).unwrap();
+        let ast = Ast::parse(&src).unwrap();
+        each_inner_loop(&ast, &mut |loop_ast| {
+            inner_loops
+                .entry(format!("{loop_ast}"))
+                .or_insert_with(|| {
+                    let loop_ir = g.lower(&Ast::Root(vec![loop_ast.clone()]));
+                    g.optimize(g.get_mut(loop_ir));
+                    (loop_ir, BTreeSet::new())
+                })
+                .1
+                .insert(relative_path.to_owned());
+        });
+    }
+    let mut out = File::create("inner_loops.txt").unwrap();
+    let mut first = true;
+    for (ast, (ir, paths)) in &inner_loops {
+        if !first {
+            writeln!(out).unwrap();
+        }
+        first = false;
+        writeln!(out, "{ast}").unwrap();
+        write!(out, "{}", g.get(*ir)).unwrap();
+        for path in paths {
+            writeln!(out, "    {path}").unwrap();
+        }
+    }
+}
+
+fn each_inner_loop(ast: &Ast, each: &mut impl FnMut(&Ast)) -> bool {
+    match ast {
+        Ast::Right | Ast::Left | Ast::Inc | Ast::Dec | Ast::Output | Ast::Input => true,
+        Ast::Loop(body) => {
+            let mut is_inner = true;
+            for ast in body {
+                is_inner &= each_inner_loop(ast, each);
+            }
+            if is_inner {
+                each(ast);
+            }
+            false
+        }
+        Ast::Root(body) => {
+            for ast in body {
+                each_inner_loop(ast, each);
+            }
+            false
+        }
+    }
 }
