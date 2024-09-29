@@ -1,5 +1,7 @@
+use std::fmt::{self, Display, Formatter};
+
 /// Brainfuck abstract syntax tree.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Ast {
     /// `>`
     Right,
@@ -15,11 +17,13 @@ pub enum Ast {
     Input,
     /// `[`…`]`
     Loop(Vec<Ast>),
+    /// Root of AST.
+    Root(Vec<Ast>),
 }
 
 impl Ast {
     /// Parses a Brainfuck program to an AST.
-    pub fn parse(src: &[u8]) -> Option<Vec<Self>> {
+    pub fn parse(src: &[u8]) -> Option<Self> {
         fn parse_block<I: Iterator<Item = u8>>(src: &mut I) -> Option<(Vec<Ast>, bool)> {
             let mut block = Vec::new();
             while let Some(ch) = src.next() {
@@ -44,9 +48,35 @@ impl Ast {
         }
 
         if let Some((root, false)) = parse_block(&mut src.iter().copied()) {
-            Some(root)
+            Some(Ast::Root(root))
         } else {
             None
+        }
+    }
+}
+
+impl Display for Ast {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            Ast::Right => write!(f, ">"),
+            Ast::Left => write!(f, "<"),
+            Ast::Inc => write!(f, "+"),
+            Ast::Dec => write!(f, "-"),
+            Ast::Output => write!(f, "."),
+            Ast::Input => write!(f, ","),
+            Ast::Loop(body) => {
+                write!(f, "[")?;
+                for node in body {
+                    write!(f, "{node}")?;
+                }
+                write!(f, "]")
+            }
+            Ast::Root(body) => {
+                for node in body {
+                    write!(f, "{node}")?;
+                }
+                Ok(())
+            }
         }
     }
 }
@@ -59,7 +89,7 @@ mod tests {
     fn parse() {
         assert_eq!(
             Ast::parse(b"+[+[[[-][+]-[+]]][-]]+"),
-            Some(vec![
+            Some(Ast::Root(vec![
                 Ast::Inc,
                 Ast::Loop(vec![
                     Ast::Inc,
@@ -72,7 +102,7 @@ mod tests {
                     Ast::Loop(vec![Ast::Dec]),
                 ]),
                 Ast::Inc,
-            ]),
+            ])),
         );
         assert_eq!(Ast::parse(b"["), None);
         assert_eq!(Ast::parse(b"[["), None);

@@ -55,6 +55,7 @@ impl Region {
                     memory.set_cell(input);
                 }
                 Ast::Loop(_) => panic!("loops must be lowered separately"),
+                Ast::Root(_) => panic!("unexpected root"),
             }
         }
         Region {

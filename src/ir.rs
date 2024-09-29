@@ -15,9 +15,12 @@ use crate::{
 //   if necessary.
 
 impl Graph {
-    pub fn lower(&self, ast: &[Ast]) -> NodeId {
+    pub fn lower(&self, ast: &Ast) -> NodeId {
+        let Ast::Root(root) = ast else {
+            panic!("expect AST root");
+        };
         Node::Root {
-            blocks: self.lower_blocks(ast),
+            blocks: self.lower_blocks(root),
         }
         .insert(self)
     }
