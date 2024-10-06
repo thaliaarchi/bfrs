@@ -1,3 +1,8 @@
+use std::{
+    hash::{Hash, Hasher},
+    ops::{Deref, DerefMut},
+};
+
 use crate::{
     graph::{
         arena::Id,
@@ -11,16 +16,27 @@ use crate::{
     region::Effect,
 };
 
+// TODO:
+// - Make HashArena not generic and fold into Graph.
+// - Deref from NodeRef<'g> to &Node with NodeRef::data(&self) -> &NodeData,
+//   instead of requiring two derefs to get to Node.
+
 /// A graph of unique nodes, structured as an arena.
 ///
 /// # Safety
 ///
 /// It is undefined behavior to use a `NodeId` in any graph other than the one
 /// which created it.
-pub type Graph = HashArena<Node>;
+pub type Graph = HashArena<NodeData>;
 
 /// The ID of a node in a graph.
-pub type NodeId = Id<Node>;
+pub type NodeId = Id<NodeData>;
+
+#[derive(Clone, Debug)]
+pub struct NodeData {
+    node: Node,
+    refs: Vec<NodeId>,
+}
 
 #[cfg(debug_assertions)]
 impl Graph {
@@ -40,7 +56,7 @@ impl Graph {
                     self.assert_id(block);
                     assert!(
                         matches!(
-                            unsafe { self.get_unchecked(block) },
+                            **unsafe { self.get_unchecked(block) },
                             Node::BasicBlock(_) | Node::Loop { .. },
                         ),
                         "node is not a control node",
@@ -94,20 +110,69 @@ impl Node {
     pub fn insert(self, g: &Graph) -> NodeId {
         #[cfg(debug_assertions)]
         g.assert_node(&self);
-        match &self {
+        let data = NodeData {
+            node: self,
+            refs: Vec::new(),
+        };
+        match &data.node {
             Node::Root { .. }
             | Node::BasicBlock(_)
             | Node::Loop { .. }
             | Node::Copy(_)
-            | Node::Input { .. } => g.insert_unique(self),
-            Node::Const(_) | Node::Add(..) | Node::Mul(..) | Node::Array(_) => g.insert(self),
+            | Node::Input { .. } => g.insert_unique(data),
+            Node::Const(_) | Node::Add(..) | Node::Mul(..) | Node::Array(_) => g.insert(data),
         }
     }
 }
 
-impl<'g> ArenaRef<'g, Node> {
+impl<'g> ArenaRef<'g, NodeData> {
     pub fn graph(&self) -> &'g Graph {
         self.arena()
+    }
+}
+
+impl NodeData {
+    #[inline]
+    pub fn node(&self) -> &Node {
+        &self.node
+    }
+
+    #[inline]
+    pub fn node_mut(&mut self) -> &mut Node {
+        &mut self.node
+    }
+
+    #[inline]
+    pub fn refs(&self) -> &[NodeId] {
+        &self.refs
+    }
+}
+
+impl Deref for NodeData {
+    type Target = Node;
+
+    fn deref(&self) -> &Self::Target {
+        &self.node
+    }
+}
+
+impl DerefMut for NodeData {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.node
+    }
+}
+
+impl PartialEq for NodeData {
+    fn eq(&self, other: &Self) -> bool {
+        self.node == other.node
+    }
+}
+
+impl Eq for NodeData {}
+
+impl Hash for NodeData {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.node.hash(state);
     }
 }
 

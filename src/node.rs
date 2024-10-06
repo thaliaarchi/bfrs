@@ -1,7 +1,7 @@
 use std::{cmp::Ordering, collections::BTreeSet, isize, mem, usize};
 
 use crate::{
-    graph::{hash_arena::ArenaRef, Graph, NodeId},
+    graph::{hash_arena::ArenaRef, Graph, NodeData, NodeId},
     region::Region,
 };
 
@@ -67,19 +67,19 @@ impl Node {
         match self {
             Node::Add(mut lhs, mut rhs) => {
                 let (mut lhs_ref, mut rhs_ref) = (g.get(lhs), g.get(rhs));
-                if let Node::Add(b, c) = *rhs_ref {
-                    if let Node::Add(..) = *lhs_ref {
+                if let Node::Add(b, c) = **rhs_ref {
+                    if let Node::Add(..) = **lhs_ref {
                         return Node::Add(Node::Add(lhs, b).idealize(g), c).idealize(g);
                     }
                     mem::swap(&mut lhs, &mut rhs);
                     mem::swap(&mut lhs_ref, &mut rhs_ref);
                 }
-                let (tail, head) = match *lhs_ref {
+                let (tail, head) = match **lhs_ref {
                     Node::Add(a, b) => (Some(a), b),
                     _ => (None, lhs),
                 };
                 let head_ref = g.get(head);
-                let (res, idealize) = match (&*head_ref, &*rhs_ref) {
+                let (res, idealize) = match (&**head_ref, &**rhs_ref) {
                     (&Node::Const(a), &Node::Const(b)) => {
                         (Node::Const(a.wrapping_add(b)).insert(g), true)
                     }
@@ -126,19 +126,19 @@ impl Node {
             }
             Node::Mul(mut lhs, mut rhs) => {
                 let (mut lhs_ref, mut rhs_ref) = (g.get(lhs), g.get(rhs));
-                if let Node::Mul(b, c) = *rhs_ref {
-                    if let Node::Mul(..) = *lhs_ref {
+                if let Node::Mul(b, c) = **rhs_ref {
+                    if let Node::Mul(..) = **lhs_ref {
                         return Node::Mul(Node::Mul(lhs, b).idealize(g), c).idealize(g);
                     }
                     mem::swap(&mut lhs, &mut rhs);
                     mem::swap(&mut lhs_ref, &mut rhs_ref);
                 }
-                let (tail, head) = match *lhs_ref {
+                let (tail, head) = match **lhs_ref {
                     Node::Mul(a, b) => (Some(a), b),
                     _ => (None, lhs),
                 };
                 let head_ref = g.get(head);
-                let (res, idealize) = match (&*head_ref, &*rhs_ref) {
+                let (res, idealize) = match (&**head_ref, &**rhs_ref) {
                     (&Node::Const(a), &Node::Const(b)) => {
                         (Node::Const(a.wrapping_mul(b)).insert(g), true)
                     }
@@ -188,10 +188,10 @@ impl Node {
     }
 }
 
-impl ArenaRef<'_, Node> {
+impl ArenaRef<'_, NodeData> {
     /// Returns whether this node references a cell besides at the given offset.
     pub fn references_other(&self, offset: isize) -> bool {
-        match *self.value() {
+        match ***self {
             Node::Root { .. } | Node::BasicBlock(_) | Node::Loop { .. } => {
                 panic!("unexpected control node")
             }
@@ -209,7 +209,7 @@ impl ArenaRef<'_, Node> {
     /// Orders two `Node` nodes by variable ordering, i.e., the contained `Copy`
     /// offsets and `Input` IDs.
     pub fn cmp_by_variable_order(&self, other: &Self) -> Ordering {
-        match (self.value(), other.value()) {
+        match (&***self, &***other) {
             (Node::Const(a), Node::Const(b)) => a.cmp(b),
             (_, Node::Const(_)) => Ordering::Less,
             (Node::Const(_), _) => Ordering::Greater,
@@ -265,7 +265,7 @@ impl ArenaRef<'_, Node> {
     }
 
     fn min_terms_(&self, min_offset: &mut isize, min_input: &mut usize) {
-        match *self.value() {
+        match ***self {
             Node::Root { .. } | Node::BasicBlock(_) | Node::Loop { .. } => {
                 panic!("unexpected control node")
             }
@@ -295,7 +295,7 @@ impl ArenaRef<'_, Node> {
     }
 
     fn offsets(&self, offsets: &mut BTreeSet<isize>) {
-        match *self.value() {
+        match ***self {
             Node::Root { .. } | Node::BasicBlock(_) | Node::Loop { .. } => {
                 panic!("unexpected control node")
             }
@@ -316,7 +316,7 @@ impl ArenaRef<'_, Node> {
     }
 
     fn inputs(&self, inputs: &mut BTreeSet<usize>) {
-        match *self.value() {
+        match ***self {
             Node::Root { .. } | Node::BasicBlock(_) | Node::Loop { .. } => {
                 panic!("unexpected control node")
             }

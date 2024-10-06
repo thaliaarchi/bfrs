@@ -51,11 +51,11 @@ impl Graph {
 
     pub fn optimize<'g>(&'g self, node: NodeId) {
         let mut node = self.get_mut(node);
-        match node.value_mut() {
+        match &mut **node {
             Node::Root { blocks } => {
                 let first_non_loop = blocks
                     .iter()
-                    .position(|&block| !matches!(*self.get(block), Node::Loop { .. }))
+                    .position(|&block| !matches!(**self.get(block), Node::Loop { .. }))
                     .unwrap_or(0);
                 blocks.drain(..first_non_loop);
                 self.optimize_blocks(blocks);
@@ -66,14 +66,14 @@ impl Graph {
             Node::Loop { condition, body } => {
                 self.optimize_blocks(body);
                 if let &[block] = body.as_slice() {
-                    if let Node::BasicBlock(bb) = &mut *self.get_mut(block) {
+                    if let Node::BasicBlock(bb) = &mut **self.get_mut(block) {
                         if bb.memory.offset() == 0 {
                             if let Some(current) = bb.memory.get_cell(0) {
                                 let current_ref = self.get(current);
-                                if let Node::Add(lhs, rhs) = *current_ref {
+                                if let Node::Add(lhs, rhs) = **current_ref {
                                     let (lhs_ref, rhs_ref) = (self.get(lhs), self.get(rhs));
                                     if let (Node::Copy(0), &Node::Const(rhs)) =
-                                        (&*lhs_ref, &*rhs_ref)
+                                        (&**lhs_ref, &**rhs_ref)
                                     {
                                         if let Some(iterations) = mod_inverse(rhs.wrapping_neg()) {
                                             let addend = Node::Mul(
@@ -85,7 +85,7 @@ impl Graph {
                                                 let cell = self.get(cell);
                                                 cell.references_other(offset)
                                                     || matches!(
-                                                        *cell,
+                                                        **cell,
                                                         Node::Input { .. } | Node::Mul(..)
                                                     )
                                             }) {
@@ -96,7 +96,7 @@ impl Graph {
                                                         Some(Node::Const(0).insert(self));
                                                     for (_, cell) in bb.memory.iter_mut() {
                                                         let cell_ref = self.get(*cell);
-                                                        if let Node::Add(lhs, rhs) = *cell_ref {
+                                                        if let Node::Add(lhs, rhs) = **cell_ref {
                                                             *cell = Node::Add(
                                                                 lhs,
                                                                 Node::Mul(rhs, addend)
@@ -120,10 +120,10 @@ impl Graph {
                 let mut guaranteed_zero = false;
                 let mut offset = 0;
                 for &block in body.iter().rev() {
-                    match &*self.get(block) {
+                    match &**self.get(block) {
                         Node::BasicBlock(bb) => {
                             if let Some(v) = bb.memory.get_cell(bb.memory.offset()) {
-                                match *self.get(v) {
+                                match **self.get(v) {
                                     Node::Const(0) => {
                                         guaranteed_zero = true;
                                         break;
@@ -154,7 +154,7 @@ impl Graph {
 
     fn optimize_blocks(&self, blocks: &mut Vec<NodeId>) {
         blocks.dedup_by(
-            |block2, block1| match (&*self.get(*block1), &*self.get(*block2)) {
+            |block2, block1| match (&**self.get(*block1), &**self.get(*block2)) {
                 (
                     Node::Loop {
                         condition: Condition::WhileNonZero,
@@ -172,7 +172,7 @@ impl Graph {
             self.optimize(block);
         }
         blocks.dedup_by(|block2, block1| {
-            match (&mut *self.get_mut(*block1), &*self.get(*block2)) {
+            match (&mut **self.get_mut(*block1), &**self.get(*block2)) {
                 (Node::BasicBlock(block1), Node::BasicBlock(block2)) => {
                     block1.concat(block2, self);
                     true
@@ -187,7 +187,7 @@ impl Graph {
     /// This does not fold alternating left and right guards.
     pub fn combine_guards(&self, node: NodeId) {
         let mut node = self.get_mut(node);
-        match node.value_mut() {
+        match &mut **node {
             Node::BasicBlock(bb) => {
                 bb.effects
                     .dedup_by(|effect2, effect1| match (effect1, effect2) {

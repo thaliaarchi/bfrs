@@ -450,7 +450,7 @@ fn each_inner_loop(ast: &Ast, after_zero: bool, each: &mut impl FnMut(&Ast)) -> 
 }
 
 fn get_loop_region(g: &Graph, root: NodeId, ast: &Ast) -> Option<Region> {
-    let Node::Root { blocks } = &*g.get(root) else {
+    let Node::Root { blocks } = &**g.get(root) else {
         panic!("not root: {ast}");
     };
     let &[block] = blocks.as_slice() else {
@@ -459,7 +459,7 @@ fn get_loop_region(g: &Graph, root: NodeId, ast: &Ast) -> Option<Region> {
     let Node::Loop {
         condition: Condition::WhileNonZero,
         body,
-    } = &*g.get(block)
+    } = &**g.get(block)
     else {
         panic!("not a loop: {ast}");
     };
@@ -469,7 +469,7 @@ fn get_loop_region(g: &Graph, root: NodeId, ast: &Ast) -> Option<Region> {
     let &[block] = body.as_slice() else {
         panic!("not a basic block in a loop: {ast}");
     };
-    let Node::BasicBlock(region) = &*g.get(block) else {
+    let Node::BasicBlock(region) = &**g.get(block) else {
         panic!("not a basic block in a loop: {ast}");
     };
     Some(region.clone())

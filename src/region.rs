@@ -76,7 +76,7 @@ impl Region {
                     *value = self.rebase(*value, g);
                 }
                 Effect::Input(value) => {
-                    let Node::Input { id } = *g.get(*value) else {
+                    let Node::Input { id } = **g.get(*value) else {
                         panic!("invalid node in input");
                     };
                     *value = Node::Input {
@@ -106,7 +106,7 @@ impl Region {
     /// Replaces `Copy` and `Input` nodes in the node to be relative to this
     /// region.
     fn rebase(&mut self, node: NodeId, g: &Graph) -> NodeId {
-        match *g.get(node) {
+        match **g.get(node) {
             Node::Root { .. } | Node::BasicBlock(_) | Node::Loop { .. } => {
                 panic!("unexpected control node")
             }
@@ -153,7 +153,7 @@ impl Region {
                     .map(|n| i + 1 + n)
                     .unwrap_or(self.effects.len());
                 if j - i > 1 {
-                    let mut elements = match &*g.get(v1) {
+                    let mut elements = match &**g.get(v1) {
                         Node::Array(elements) => elements.clone(),
                         _ => vec![v1],
                     };
@@ -161,7 +161,7 @@ impl Region {
                         let Effect::Output(v) = output else {
                             unreachable!();
                         };
-                        match &*g.get(v) {
+                        match &**g.get(v) {
                             Node::Array(other) => elements.extend_from_slice(&other),
                             _ => elements.push(v),
                         }
