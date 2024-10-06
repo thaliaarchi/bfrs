@@ -42,32 +42,32 @@ fn test_optimize_file(src_path: &str, expect_path: &str) {
 #[test]
 fn collatz_lower() {
     test_lower_file(
-        "tests/third_party/cristofd/collatz.b",
-        "tests/third_party/cristofd/collatz.noopt.ir",
+        "../tests/third_party/cristofd/collatz.b",
+        "../tests/third_party/cristofd/collatz.noopt.ir",
     );
 }
 
 #[test]
 fn collatz_optimize() {
     test_optimize_file(
-        "tests/third_party/cristofd/collatz.b",
-        "tests/third_party/cristofd/collatz.ir",
+        "../tests/third_party/cristofd/collatz.b",
+        "../tests/third_party/cristofd/collatz.ir",
     );
 }
 
 #[test]
 fn wikipedia_hello_world_optimize() {
     test_optimize_file(
-        "tests/third_party/wikipedia/hello_world.b",
-        "tests/third_party/wikipedia/hello_world.ir",
+        "../tests/third_party/wikipedia/hello_world.b",
+        "../tests/third_party/wikipedia/hello_world.ir",
     );
 }
 
 #[test]
 fn rosettacode_hello_world_optimize() {
     test_optimize_file(
-        "tests/third_party/rosettacode/hello_world.b",
-        "tests/third_party/rosettacode/hello_world.ir",
+        "../tests/third_party/rosettacode/hello_world.b",
+        "../tests/third_party/rosettacode/hello_world.ir",
     );
 }
 
@@ -369,15 +369,15 @@ fn missed_optimizations() {
 fn report_inner_loops() {
     let mut inner_loops = BTreeMap::<String, InnerLoopStats>::new();
     let g = Graph::new();
-    for path in glob("tests/third_party/**/*.b")
+    for path in glob("../tests/third_party/**/*.b")
         .unwrap()
-        .chain(glob("tests/third_party/**/*.bf").unwrap())
+        .chain(glob("../tests/third_party/**/*.bf").unwrap())
     {
         let path = path.unwrap();
         let relative_path = path
             .to_str()
             .unwrap()
-            .strip_prefix("tests/third_party/")
+            .strip_prefix("../tests/third_party/")
             .unwrap();
         let src = fs::read(&path).unwrap();
         let ast = Ast::parse(&src).unwrap();
