@@ -67,14 +67,85 @@ impl Block {
     /// Gets the value of the cell at the offset.
     pub fn get_cell(&self, offset: Offset) -> Option<NodeId> {
         self.memory
-            .get(usize::try_from(offset.0 - self.min_offset.0).ok()?)
+            .get(offset.try_index_from(self.min_offset)?)
             .copied()
             .flatten()
     }
 
     /// The maximum offset, which has a modified value in this basic block.
     pub fn max_offset(&self) -> Offset {
-        Offset(self.min_offset.0 + self.memory.len() as i64)
+        self.min_offset + self.memory.len() as i64
+    }
+
+    /// Concatenates two basic blocks. Applies the operations of `other` to
+    /// `self`.
+    pub fn concat(&mut self, other: &Self, a: &mut Arena) {
+        self.effects.reserve(other.effects.len());
+        for effect in &other.effects {
+            let effect = match effect {
+                Effect::Output(values) => {
+                    let values = values
+                        .iter()
+                        .map(|value| value.move_to_block(other.id, self.id, a));
+                    if let Some(Effect::Output(values1)) = self.effects.last_mut() {
+                        values1.extend(values);
+                        continue;
+                    }
+                    Effect::Output(values.collect())
+                }
+                &Effect::Input(input) => Effect::Input(input),
+                &Effect::GuardShift(offset) => {
+                    let offset = offset + self.offset;
+                    if offset < self.guarded_left {
+                        self.guarded_left = offset;
+                    } else if offset > self.guarded_right {
+                        self.guarded_right = offset;
+                    } else {
+                        continue;
+                    }
+                    Effect::GuardShift(offset)
+                }
+            };
+            self.effects.push(effect);
+        }
+
+        let mut other_memory = other.memory.clone();
+        for cell in &mut other_memory {
+            if let Some(cell) = cell {
+                *cell = cell.move_to_block(other.id, self.id, a);
+            }
+        }
+        let min_offset = self.offset + other.min_offset;
+        let max_offset = self.offset + other.max_offset();
+        self.reserve(min_offset, max_offset);
+        for (i, &cell) in other_memory.iter().enumerate() {
+            if let Some(cell) = cell {
+                self.memory[min_offset.index_from(self.min_offset) + i] = Some(cell);
+            }
+        }
+        self.guarded_left = self.guarded_left.min(self.offset + other.guarded_left);
+        self.guarded_right = self.guarded_right.max(self.offset + other.guarded_right);
+        self.offset += other.offset;
+    }
+
+    /// Reserves slots for cells in the range `min_offset..max_offset` and fills
+    /// them with `None`.
+    fn reserve(&mut self, min_offset: Offset, max_offset: Offset) {
+        debug_assert!(max_offset >= min_offset);
+        if self.memory.is_empty() {
+            self.memory.resize(max_offset.index_from(min_offset), None);
+            self.min_offset = min_offset;
+            return;
+        }
+        let min_offset = self.min_offset.min(min_offset);
+        let max_offset = self.max_offset().max(max_offset);
+        let len = max_offset.index_from(min_offset);
+        self.memory.reserve(len - self.memory.len());
+        for _ in 0..self.min_offset.index_from(min_offset) {
+            self.memory.push_front(None);
+        }
+        self.memory.resize(len, None);
+        self.min_offset = min_offset;
     }
 
     /// Clones this block, making its copies be relative to the given block and
@@ -191,7 +262,7 @@ impl BlockBuilder {
     /// value at the cell pointer.
     fn get_parts(&mut self) -> (&mut Option<NodeId>, &mut u8) {
         let block = &mut self.block;
-        let i = block.offset.0 - block.min_offset.0;
+        let i = block.offset.index_from_signed(block.min_offset);
         if block.memory.is_empty() {
             block.memory.push_back(None);
             self.addends.push_back(0);
@@ -246,8 +317,29 @@ impl BlockBuilder {
 }
 
 impl NodeId {
-    /// Clones this node, making its copies be relative to the given block and
-    /// generating fresh inputs.
+    /// Makes a copy of this node, but with its copies be relative to the given
+    /// block.
+    pub fn move_to_block(self, block_from: BlockId, block_to: BlockId, a: &mut Arena) -> Self {
+        match a[self] {
+            Node::Copy(offset, block) if block == block_from => {
+                Node::Copy(offset, block_to).insert_ideal(a)
+            }
+            Node::Copy(..) | Node::Const(_) | Node::Input(_) => self,
+            Node::Add(lhs, rhs) => {
+                let lhs = lhs.move_to_block(block_from, block_to, a);
+                let rhs = rhs.move_to_block(block_from, block_to, a);
+                Node::Add(lhs, rhs).insert_ideal(a)
+            }
+            Node::Mul(lhs, rhs) => {
+                let lhs = lhs.move_to_block(block_from, block_to, a);
+                let rhs = rhs.move_to_block(block_from, block_to, a);
+                Node::Mul(lhs, rhs).insert_ideal(a)
+            }
+        }
+    }
+
+    /// Makes a copy of this node, but with its copies relative to the given
+    /// block and with fresh inputs.
     pub fn clone_in_block(
         self,
         block_from: BlockId,
