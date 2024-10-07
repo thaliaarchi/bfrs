@@ -39,9 +39,10 @@ impl Arena {
         }
     }
 
-    /// Inserts a node into this arena and returns its unique ID. Any
-    /// structurally equivalent nodes are deduplicated and receive the same ID.
-    pub fn insert(&mut self, node: Node) -> NodeId {
+    /// Inserts a node into this arena and returns its unique ID. The node must
+    /// already be idealized. Any structurally equivalent nodes are deduplicated
+    /// and receive the same ID.
+    pub fn insert_ideal(&mut self, node: Node) -> NodeId {
         let hash = BuildHasherDefault::<DefaultHasher>::default().hash_one(&node);
         if let Some(&id) = self.ids.get(&hash) {
             return id;
@@ -53,7 +54,7 @@ impl Arena {
 
     /// Inserts a `Node::Input` with a fresh ID.
     pub fn fresh_input(&mut self) -> NodeId {
-        let id = self.insert(Node::Input(self.next_input));
+        let id = self.insert_ideal(Node::Input(self.next_input));
         self.next_input = InputId(self.next_input.0 + 1);
         id
     }

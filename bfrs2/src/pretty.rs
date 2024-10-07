@@ -91,7 +91,7 @@ impl<'w, 'a> PrettyPrinter<'w, 'a> {
                     copies.insert(offset);
                 }
                 Node::Const(_) | Node::Input(_) => {}
-                Node::Add(lhs, rhs) => {
+                Node::Add(lhs, rhs) | Node::Mul(lhs, rhs) => {
                     visit_copies(node.get(lhs), current_block, copies);
                     visit_copies(node.get(rhs), current_block, copies);
                 }
@@ -161,6 +161,15 @@ impl<'w, 'a> PrettyPrinter<'w, 'a> {
                 }
                 write!(self.w, " + ")?;
                 self.group_node(rhs, matches!(rhs_node, Node::Add(..)), use_copies)
+            }
+            Node::Mul(lhs, rhs) => {
+                self.group_node(lhs, matches!(&self.a[lhs], Node::Add(..)), use_copies)?;
+                write!(self.w, " * ")?;
+                self.group_node(
+                    rhs,
+                    matches!(&self.a[rhs], Node::Add(..) | Node::Mul(..)),
+                    use_copies,
+                )
             }
         }
     }
