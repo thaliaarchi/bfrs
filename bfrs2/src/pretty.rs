@@ -1,6 +1,7 @@
 use std::{
     collections::BTreeSet,
     fmt::{self, Display, Formatter, Write},
+    mem,
 };
 
 use crate::{
@@ -27,6 +28,7 @@ impl Display for NodeRef<'_> {
 struct PrettyPrinter<'w, 'a> {
     w: &'w mut (dyn Write + 'w),
     indent_buf: String,
+    copies_scratch: BTreeSet<Offset>,
     a: &'a Arena,
 }
 
@@ -37,24 +39,35 @@ impl<'w, 'a> PrettyPrinter<'w, 'a> {
         PrettyPrinter {
             w,
             indent_buf: Self::INDENT.repeat(4),
+            copies_scratch: BTreeSet::new(),
             a,
         }
     }
 
     fn pretty_cfg(&mut self, cfg: &Cfg, indent: usize) -> fmt::Result {
         match cfg {
-            Cfg::Block(block) => self.pretty_block(block, indent),
+            Cfg::Block(block) => self.pretty_block(block, indent, false),
             Cfg::Seq(seq) => {
-                for cfg in seq {
+                if seq.is_empty() {
+                    return Ok(());
+                } else if seq.len() == 1 {
+                    return self.pretty_cfg(&seq[0], indent);
+                }
+                let mut seq = seq.iter().peekable();
+                while let Some(cfg) = seq.next() {
+                    // Print blocks with braces only when there are adjacent
+                    // blocks that are not coalesced.
                     if let Cfg::Block(block) = cfg {
-                        self.indent(indent)?;
-                        write!(self.w, "{{\n")?;
-                        self.pretty_block(block, indent + 1)?;
-                        self.indent(indent)?;
-                        write!(self.w, "}}\n")?;
-                    } else {
-                        self.pretty_cfg(cfg, indent)?;
+                        if let Some(Cfg::Block(_)) = seq.peek() {
+                            self.pretty_block(block, indent, true)?;
+                            while let Some(Cfg::Block(block)) = seq.peek() {
+                                self.pretty_block(block, indent, true)?;
+                                seq.next();
+                            }
+                            continue;
+                        }
                     }
+                    self.pretty_cfg(cfg, indent)?;
                 }
                 Ok(())
             }
@@ -68,7 +81,7 @@ impl<'w, 'a> PrettyPrinter<'w, 'a> {
         }
     }
 
-    fn pretty_block(&mut self, block: &Block, indent: usize) -> fmt::Result {
+    fn pretty_block(&mut self, block: &Block, mut indent: usize, braced: bool) -> fmt::Result {
         fn visit_copies(node: NodeRef<'_>, current_block: BlockId, copies: &mut BTreeSet<Offset>) {
             match *node.node() {
                 Node::Copy(offset, block_id) => {
@@ -85,12 +98,18 @@ impl<'w, 'a> PrettyPrinter<'w, 'a> {
             }
         }
 
+        if braced {
+            self.indent(indent)?;
+            write!(self.w, "{{\n")?;
+            indent += 1;
+        }
         for effect in &block.effects {
             self.indent(indent)?;
             self.pretty_effect(effect)?;
             write!(self.w, "\n")?;
         }
-        let mut copies = BTreeSet::new();
+        let mut copies = mem::take(&mut self.copies_scratch);
+        copies.clear();
         for (_, node) in block.iter_memory() {
             visit_copies(self.a.get(node), block.id, &mut copies);
         }
@@ -100,6 +119,7 @@ impl<'w, 'a> PrettyPrinter<'w, 'a> {
             self.pretty_copy(copy)?;
             write!(self.w, " = p[{}]\n", copy.0)?;
         }
+        self.copies_scratch = copies;
         for (offset, node) in block.iter_memory() {
             if self.a[node] != Node::Copy(offset, block.id) {
                 self.indent(indent)?;
@@ -111,6 +131,10 @@ impl<'w, 'a> PrettyPrinter<'w, 'a> {
         if block.offset != Offset(0) {
             self.indent(indent)?;
             write!(self.w, "shift({})\n", block.offset.0)?;
+        }
+        if braced {
+            self.indent(indent - 1)?;
+            write!(self.w, "}}\n")?;
         }
         Ok(())
     }
