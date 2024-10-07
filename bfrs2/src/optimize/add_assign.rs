@@ -14,10 +14,7 @@ impl Cfg {
         match self {
             Cfg::Block(_) => {}
             Cfg::Seq(seq) => {
-                for cfg in seq {
-                    cfg.opt_closed_form_add(a);
-                }
-                self.concat_adjacent_blocks(a);
+                seq.for_each(a, |cfg, a| cfg.opt_closed_form_add(a));
             }
             Cfg::Loop(cfg) => {
                 cfg.opt_closed_form_add(a);

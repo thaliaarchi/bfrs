@@ -1,6 +1,11 @@
 use std::mem;
 
-use crate::{arena::Arena, block::Block, cfg::Cfg, node::Offset};
+use crate::{
+    arena::Arena,
+    block::Block,
+    cfg::{Cfg, Seq},
+    node::Offset,
+};
 
 // TODO:
 // - Investigate peeling looped sequences.
@@ -10,10 +15,7 @@ impl Cfg {
         match self {
             Cfg::Block(_) => {}
             Cfg::Seq(seq) => {
-                for cfg in seq {
-                    cfg.opt_peel(a);
-                }
-                self.concat_adjacent_blocks(a);
+                seq.for_each(a, |cfg, a| cfg.opt_peel(a));
             }
             Cfg::Loop(cfg) => {
                 cfg.opt_peel(a);
@@ -29,8 +31,7 @@ impl Cfg {
                     let Cfg::Loop(peeled) = mem::replace(self, Cfg::empty()) else {
                         unreachable!();
                     };
-                    let mut body = Cfg::seq(vec![*peeled, tail]);
-                    body.concat_adjacent_blocks(a);
+                    let body = Seq::from_iter([*peeled, tail], a).into_cfg();
                     *self = Cfg::If(Box::new(body));
                 }
             }

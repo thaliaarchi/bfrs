@@ -4,7 +4,11 @@ use std::{
     slice::Iter,
 };
 
-use crate::{arena::Arena, block::BlockBuilder, cfg::Cfg};
+use crate::{
+    arena::Arena,
+    block::BlockBuilder,
+    cfg::{Cfg, Seq},
+};
 
 /// An error from parsing a Brainfuck program.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -71,10 +75,7 @@ impl<'s, 'a> Parser<'s, 'a> {
             }
             seq.push(Cfg::Block(block.finish(self.a)));
         }
-        if seq.len() == 1 {
-            return Ok(seq.pop().unwrap());
-        }
-        Ok(Cfg::Seq(seq))
+        Ok(Seq::from_unflattened(seq).into_cfg())
     }
 }
 
