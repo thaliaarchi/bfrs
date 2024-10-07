@@ -9,4 +9,6 @@ pub enum Cfg {
     Seq(Vec<Cfg>),
     /// Loop while the current cell is non-zero.
     Loop(Box<Cfg>),
+    /// If the current cell is non-zero.
+    If(Box<Cfg>),
 }

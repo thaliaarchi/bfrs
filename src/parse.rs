@@ -65,16 +65,16 @@ impl<'s, 'a> Parser<'s, 'a> {
         if !loop_closed {
             return Err(ParseError::UnclosedLoop);
         }
-        if seq.is_empty() {
-            Ok(Cfg::Block(block.finish(self.a)))
-        } else {
-            if !block.is_empty() {
-                seq.push(Cfg::Block(block.finish(self.a)));
-            } else if seq.len() == 1 {
-                return Ok(seq.pop().unwrap());
+        if !block.is_empty() {
+            if seq.is_empty() {
+                return Ok(Cfg::Block(block.finish(self.a)));
             }
-            Ok(Cfg::Seq(seq))
+            seq.push(Cfg::Block(block.finish(self.a)));
         }
+        if seq.len() == 1 {
+            return Ok(seq.pop().unwrap());
+        }
+        Ok(Cfg::Seq(seq))
     }
 }
 
