@@ -16,24 +16,25 @@ impl Cfg {
             Cfg::Block(_) => {}
             Cfg::Seq(seq) => {
                 seq.for_each(a, |cfg, a| cfg.opt_peel(a));
+                self.flatten();
             }
             Cfg::Loop(cfg) => {
-                cfg.opt_peel(a);
                 if let Cfg::Block(block) = cfg.as_ref() {
-                    if block.offset != Offset(0) || !block.has_invariant_stores(a) {
+                    if block.offset == Offset(0) && block.has_invariant_stores(a) {
+                        let mut tail = block.clone_fresh(a);
+                        tail.remove_invariant_stores(a);
+                        let tail = Cfg::Loop(Box::new(Cfg::Block(tail)));
+
+                        let Cfg::Loop(peeled) = mem::replace(self, Cfg::empty()) else {
+                            unreachable!();
+                        };
+                        let body = Seq::from_iter([*peeled, tail], a).into_cfg();
+                        *self = Cfg::If(Box::new(body));
+                        self.opt_peel(a);
                         return;
                     }
-                    let mut tail = block.clone_fresh(a);
-                    tail.remove_invariant_stores(a);
-                    let mut tail = Cfg::Loop(Box::new(Cfg::Block(tail)));
-                    tail.opt_peel(a);
-
-                    let Cfg::Loop(peeled) = mem::replace(self, Cfg::empty()) else {
-                        unreachable!();
-                    };
-                    let body = Seq::from_iter([*peeled, tail], a).into_cfg();
-                    *self = Cfg::If(Box::new(body));
                 }
+                cfg.opt_peel(a);
             }
             Cfg::If(cfg_then) => {
                 cfg_then.opt_peel(a);

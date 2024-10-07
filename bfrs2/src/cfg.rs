@@ -30,6 +30,16 @@ impl Cfg {
     pub fn empty() -> Self {
         Cfg::Seq(Seq::new())
     }
+
+    /// Flattens a 1-element `Seq` into its element.
+    pub fn flatten(&mut self) {
+        match self {
+            Cfg::Seq(seq) if seq.len() == 1 => {
+                *self = seq.cfgs.pop().unwrap();
+            }
+            _ => {}
+        }
+    }
 }
 
 impl Debug for Cfg {
