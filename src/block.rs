@@ -1,8 +1,11 @@
-use std::{collections::VecDeque, mem};
+use std::{
+    collections::{HashMap, VecDeque},
+    mem,
+};
 
 use crate::{
     arena::{Arena, NodeId},
-    node::{BlockId, Node, Offset},
+    node::{BlockId, InputId, Node, Offset},
 };
 
 /// The memory and effects of a basic block.
@@ -72,6 +75,32 @@ impl Block {
     /// The maximum offset, which has a modified value in this basic block.
     pub fn max_offset(&self) -> Offset {
         Offset(self.min_offset.0 + self.memory.len() as i64)
+    }
+
+    /// Clones this block, making its copies be relative to the given block and
+    /// generating fresh inputs.
+    pub fn clone_fresh(&self, a: &mut Arena) -> Self {
+        let id = a.fresh_block_id();
+        let mut inputs = HashMap::new();
+        let memory = self
+            .memory
+            .iter()
+            .map(|cell| cell.map(|cell| cell.clone_in_block(self.id, id, &mut inputs, a)))
+            .collect();
+        let effects = self
+            .effects
+            .iter()
+            .map(|effect| effect.clone_in_block(self.id, id, &mut inputs, a))
+            .collect();
+        Block {
+            id,
+            memory,
+            effects,
+            offset: self.offset,
+            min_offset: self.min_offset,
+            guarded_left: self.guarded_left,
+            guarded_right: self.guarded_right,
+        }
     }
 
     /// Returns an iterator for cells assigned in this block.
@@ -213,5 +242,69 @@ impl BlockBuilder {
             && block.min_offset == Offset(0)
             && block.guarded_left == Offset(0)
             && block.guarded_right == Offset(0)
+    }
+}
+
+impl NodeId {
+    /// Clones this node, making its copies be relative to the given block and
+    /// generating fresh inputs.
+    pub fn clone_in_block(
+        self,
+        block_from: BlockId,
+        block_to: BlockId,
+        inputs: &mut HashMap<InputId, NodeId>,
+        a: &mut Arena,
+    ) -> Self {
+        match a[self] {
+            Node::Copy(offset, block) if block == block_from => {
+                Node::Copy(offset, block_to).insert_ideal(a)
+            }
+            Node::Copy(..) | Node::Const(_) => self,
+            Node::Input(input) => {
+                if let Some(&id) = inputs.get(&input) {
+                    id
+                } else {
+                    let id = a.fresh_input();
+                    inputs.insert(input, id);
+                    id
+                }
+            }
+            Node::Add(lhs, rhs) => {
+                let lhs = lhs.clone_in_block(block_from, block_to, inputs, a);
+                let rhs = rhs.clone_in_block(block_from, block_to, inputs, a);
+                Node::Add(lhs, rhs).insert_ideal(a)
+            }
+            Node::Mul(lhs, rhs) => {
+                let lhs = lhs.clone_in_block(block_from, block_to, inputs, a);
+                let rhs = rhs.clone_in_block(block_from, block_to, inputs, a);
+                Node::Mul(lhs, rhs).insert_ideal(a)
+            }
+        }
+    }
+}
+
+impl Effect {
+    /// Clones this effect, making its copies be relative to the given block and
+    /// generating fresh inputs.
+    pub fn clone_in_block(
+        &self,
+        block_from: BlockId,
+        block_to: BlockId,
+        inputs: &mut HashMap<InputId, NodeId>,
+        a: &mut Arena,
+    ) -> Self {
+        match self {
+            Effect::Output(values) => {
+                let values = values
+                    .iter()
+                    .map(|value| value.clone_in_block(block_from, block_to, inputs, a))
+                    .collect();
+                Effect::Output(values)
+            }
+            Effect::Input(input) => {
+                Effect::Input(input.clone_in_block(block_from, block_to, inputs, a))
+            }
+            &Effect::GuardShift(offset) => Effect::GuardShift(offset),
+        }
     }
 }
