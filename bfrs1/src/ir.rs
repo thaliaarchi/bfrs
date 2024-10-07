@@ -75,12 +75,10 @@ impl Graph {
                                     if let (Node::Copy(0), &Node::Const(rhs)) =
                                         (&**lhs_ref, &**rhs_ref)
                                     {
-                                        if let Some(iterations) = mod_inverse(rhs.wrapping_neg()) {
-                                            let addend = Node::Mul(
-                                                lhs,
-                                                Node::Const(iterations).insert(self),
-                                            )
-                                            .idealize(self);
+                                        if let Some(stride) = mod_inverse(rhs.wrapping_neg()) {
+                                            let iters =
+                                                Node::Mul(lhs, Node::Const(stride).insert(self))
+                                                    .idealize(self);
                                             if !bb.memory.iter().any(|(offset, cell)| {
                                                 let cell = self.get(cell);
                                                 cell.references_other(offset)
@@ -99,7 +97,7 @@ impl Graph {
                                                         if let Node::Add(lhs, rhs) = **cell_ref {
                                                             *cell = Node::Add(
                                                                 lhs,
-                                                                Node::Mul(rhs, addend)
+                                                                Node::Mul(rhs, iters)
                                                                     .idealize(self),
                                                             )
                                                             .idealize(self);
@@ -109,7 +107,7 @@ impl Graph {
                                                     return;
                                                 }
                                             }
-                                            *condition = Condition::Count(addend);
+                                            *condition = Condition::Count(iters);
                                         }
                                     }
                                 }
