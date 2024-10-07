@@ -84,14 +84,17 @@ impl Block {
         for effect in &other.effects {
             let effect = match effect {
                 Effect::Output(values) => {
+                    let mut effects = mem::take(&mut self.effects);
                     let values = values
                         .iter()
-                        .map(|value| value.move_to_block(other.id, self.id, a));
-                    if let Some(Effect::Output(values1)) = self.effects.last_mut() {
+                        .map(|value| value.move_to_block(other.id, self, a));
+                    if let Some(Effect::Output(values1)) = effects.last_mut() {
                         values1.extend(values);
-                        continue;
+                    } else {
+                        effects.push(Effect::Output(values.collect()));
                     }
-                    Effect::Output(values.collect())
+                    self.effects = effects;
+                    continue;
                 }
                 &Effect::Input(input) => Effect::Input(input),
                 &Effect::GuardShift(offset) => {
@@ -112,7 +115,7 @@ impl Block {
         let mut other_memory = other.memory.clone();
         for cell in &mut other_memory {
             if let Some(cell) = cell {
-                *cell = cell.move_to_block(other.id, self.id, a);
+                *cell = cell.move_to_block(other.id, self, a);
             }
         }
         let min_offset = self.offset + other.min_offset;
@@ -319,21 +322,24 @@ impl BlockBuilder {
 impl NodeId {
     /// Makes a copy of this node, but with its copies be relative to the given
     /// block.
-    pub fn move_to_block(self, block_from: BlockId, block_to: BlockId, a: &mut Arena) -> Self {
+    pub fn move_to_block(self, block_from: BlockId, block_to: &Block, a: &mut Arena) -> Self {
         match a[self] {
             Node::Copy(offset, block) if block == block_from => {
-                Node::Copy(offset, block_to).insert_ideal(a)
+                let offset = block_to.offset + offset;
+                block_to
+                    .get_cell(offset)
+                    .unwrap_or_else(|| Node::Copy(offset, block_to.id).insert_ideal(a))
             }
             Node::Copy(..) | Node::Const(_) | Node::Input(_) => self,
             Node::Add(lhs, rhs) => {
                 let lhs = lhs.move_to_block(block_from, block_to, a);
                 let rhs = rhs.move_to_block(block_from, block_to, a);
-                Node::Add(lhs, rhs).insert_ideal(a)
+                Node::Add(lhs, rhs).insert(a)
             }
             Node::Mul(lhs, rhs) => {
                 let lhs = lhs.move_to_block(block_from, block_to, a);
                 let rhs = rhs.move_to_block(block_from, block_to, a);
-                Node::Mul(lhs, rhs).insert_ideal(a)
+                Node::Mul(lhs, rhs).insert(a)
             }
         }
     }
