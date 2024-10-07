@@ -13,7 +13,7 @@ impl Cfg {
                 for cfg in seq {
                     cfg.opt_peel(a);
                 }
-                // TODO: Concatenate adjacent basic blocks.
+                self.concat_adjacent_blocks(a);
             }
             Cfg::Loop(cfg) => {
                 cfg.opt_peel(a);
@@ -29,8 +29,8 @@ impl Cfg {
                     let Cfg::Loop(peeled) = mem::replace(self, Cfg::empty()) else {
                         unreachable!();
                     };
-                    let body = Cfg::Seq(vec![*peeled, tail]);
-                    // TODO: Concatenate adjacent basic blocks.
+                    let mut body = Cfg::seq(vec![*peeled, tail]);
+                    body.concat_adjacent_blocks(a);
                     *self = Cfg::If(Box::new(body));
                 }
             }

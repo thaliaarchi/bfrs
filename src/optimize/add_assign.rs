@@ -7,9 +7,6 @@ use crate::{
     node::{Node, Offset},
 };
 
-// TODO:
-// - Concatenate adjacent basic blocks after closed form optimization.
-
 impl Cfg {
     /// Converts loops, which have no net shift and add an odd constant to the
     /// current cell, to their closed form.
@@ -20,7 +17,7 @@ impl Cfg {
                 for cfg in seq {
                     cfg.opt_closed_form_add(a);
                 }
-                // TODO: Concatenate adjacent basic blocks.
+                self.concat_adjacent_blocks(a);
             }
             Cfg::Loop(cfg) => {
                 cfg.opt_closed_form_add(a);

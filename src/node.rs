@@ -141,6 +141,41 @@ impl Node {
     }
 }
 
+impl Offset {
+    /// Subtracts this offset from the minimum offset to get an index. Panics
+    /// when `min > self`.
+    pub fn index_from(self, min: Offset) -> usize {
+        (self.0 - min.0)
+            .try_into()
+            .ok()
+            .expect("BUG: offset before minimum")
+    }
+
+    /// Subtracts this offset from the minimum offset to get an index.
+    pub fn try_index_from(self, min: Offset) -> Option<usize> {
+        (self.0 - min.0).try_into().ok()
+    }
+
+    /// Subtracts this offset from the minimum offset to get a signed index.
+    pub fn index_from_signed(self, min: Offset) -> isize {
+        (self.0 - min.0).try_into().unwrap()
+    }
+}
+
+impl Add for Offset {
+    type Output = Self;
+
+    fn add(self, rhs: Offset) -> Self::Output {
+        Offset(self.0 + rhs.0)
+    }
+}
+
+impl AddAssign for Offset {
+    fn add_assign(&mut self, rhs: Offset) {
+        *self = *self + rhs;
+    }
+}
+
 impl Add<i64> for Offset {
     type Output = Self;
 
