@@ -6,7 +6,7 @@ use std::{
     ops::{Deref, Index},
 };
 
-use crate::node::{InputId, Node};
+use crate::node::{BlockId, InputId, Node};
 
 /// An arena of unique nodes, identified by ID.
 pub struct Arena {
@@ -14,6 +14,8 @@ pub struct Arena {
     nodes: Vec<Node>,
     /// Map from node hash to node ID for value numbering.
     ids: HashMap<u64, NodeId>,
+    /// The ID of the next basic block.
+    next_block: BlockId,
     /// The ID of the next unique input.
     next_input: InputId,
 }
@@ -35,6 +37,7 @@ impl Arena {
         Arena {
             nodes: Vec::new(),
             ids: HashMap::new(),
+            next_block: BlockId(0),
             next_input: InputId(0),
         }
     }
@@ -50,6 +53,13 @@ impl Arena {
         self.nodes.push(node);
         let len = u32::try_from(self.nodes.len()).expect("arena too large for u32 index");
         NodeId(NonZero::new(len).unwrap())
+    }
+
+    /// Generates a fresh ID for the next basic block.
+    pub fn fresh_block_id(&mut self) -> BlockId {
+        let id = self.next_block;
+        self.next_block = BlockId(self.next_block.0 + 1);
+        id
     }
 
     /// Inserts a `Node::Input` with a fresh ID.

@@ -188,8 +188,9 @@ impl BlockBuilder {
 
     /// Returns the finished basic block.
     pub fn finish(&mut self, a: &mut Arena) -> Block {
-        let next_block = Block::new(BlockId(self.block.id.0 + 1));
+        let next_block = Block::new(BlockId(0));
         let mut block = mem::replace(&mut self.block, next_block);
+        block.id = a.fresh_block_id();
         for i in 0..block.memory.len() {
             let node = &mut block.memory[i];
             let addend = self.addends[i];
