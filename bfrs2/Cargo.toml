@@ -1,0 +1,11 @@
+[package]
+name = "bfrs-minimal"
+version = "0.1.0"
+authors = ["Thalia Archibald <thalia@archibald.dev>"]
+edition = "2021"
+description = "An optimizing Brainfuck compiler demonstrating the optimizations of bfrs with a more minimal codebase"
+license = "MPL-2.0"
+keywords = ["brainfuck", "compiler"]
+categories = ["compilers"]
+
+[dependencies]

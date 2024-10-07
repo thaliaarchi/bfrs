@@ -1,4 +1,4 @@
 [workspace]
 resolver = "2"
-members = ["bfrs1"]
-default-members = ["bfrs1"]
+members = ["bfrs1", "bfrs2"]
+default-members = ["bfrs2"]
