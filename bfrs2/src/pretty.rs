@@ -78,6 +78,13 @@ impl<'w, 'a> PrettyPrinter<'w, 'a> {
                 self.indent(indent)?;
                 write!(self.w, "}}\n")
             }
+            Cfg::If(cfg_then) => {
+                self.indent(indent)?;
+                write!(self.w, "if p[0] != 0 {{\n")?;
+                self.pretty_cfg(cfg_then, indent + 1)?;
+                self.indent(indent)?;
+                write!(self.w, "}}\n")
+            }
         }
     }
 

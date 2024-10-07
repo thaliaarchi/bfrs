@@ -8,7 +8,6 @@ use crate::{
 };
 
 // TODO:
-// - Guards are made unconditional when loops are converted to closed form.
 // - Concatenate adjacent basic blocks after closed form optimization.
 
 impl Cfg {
@@ -27,14 +26,21 @@ impl Cfg {
                 cfg.opt_closed_form_add(a);
                 if let Cfg::Block(block) = cfg.as_mut() {
                     if let Some(factor) = block.closed_form_iter_factor(a) {
-                        if block.opt_closed_form_add(factor, a) {
+                        if let Some(has_guards) = block.opt_closed_form_add(factor, a) {
                             let Cfg::Loop(body) = mem::replace(self, Cfg::Seq(Vec::new())) else {
                                 unreachable!();
                             };
-                            *self = *body;
+                            if has_guards {
+                                *self = Cfg::If(body);
+                            } else {
+                                *self = *body;
+                            }
                         }
                     }
                 }
+            }
+            Cfg::If(cfg_then) => {
+                cfg_then.opt_closed_form_add(a);
             }
         }
     }
@@ -64,20 +70,19 @@ impl Block {
 
     /// Converts a loop body, which has no net shift and adds an odd constant to
     /// the current cell, to its closed form. The block should be in a loop.
-    fn opt_closed_form_add(&mut self, factor: u8, a: &mut Arena) -> bool {
-        if !self
-            .effects
-            .iter()
-            .all(|effect| matches!(effect, Effect::GuardShift(_)))
-        {
-            // BUG: These guards are made unconditional.
-            return false;
+    fn opt_closed_form_add(&mut self, factor: u8, a: &mut Arena) -> Option<bool> {
+        let mut has_guards = false;
+        for effect in &self.effects {
+            match effect {
+                Effect::GuardShift(_) => has_guards = true,
+                _ => return None,
+            }
         }
         if !self
             .iter_memory()
             .all(|(offset, cell)| offset == Offset(0) || a.get(cell).is_add_assign(offset, self.id))
         {
-            return false;
+            return None;
         }
         let block_id = self.id;
         let iters = Node::Mul(
@@ -98,7 +103,7 @@ impl Block {
                 }
             }
         }
-        true
+        Some(has_guards)
     }
 }
 
