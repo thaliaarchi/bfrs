@@ -15,6 +15,7 @@ impl Cfg {
             Cfg::Block(_) => {}
             Cfg::Seq(seq) => {
                 seq.for_each(a, |cfg, a| cfg.opt_closed_form_add(a));
+                self.flatten();
             }
             Cfg::Loop(cfg) => {
                 cfg.opt_closed_form_add(a);
