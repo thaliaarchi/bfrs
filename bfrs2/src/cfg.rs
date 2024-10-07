@@ -12,3 +12,10 @@ pub enum Cfg {
     /// If the current cell is non-zero.
     If(Box<Cfg>),
 }
+
+impl Cfg {
+    /// Creates a CFG with no effect.
+    pub fn empty() -> Self {
+        Cfg::Seq(Vec::new())
+    }
+}

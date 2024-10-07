@@ -20,6 +20,7 @@ fn do_main() -> Result<(), Box<dyn Error>> {
     let mut a = Arena::new();
     let mut cfg = a.parse(&src)?;
     cfg.opt_closed_form_add(&mut a);
+    cfg.opt_peel(&mut a);
     print!("{}", cfg.pretty(&a));
     Ok(())
 }

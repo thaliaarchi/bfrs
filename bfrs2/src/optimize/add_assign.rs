@@ -1,10 +1,10 @@
 use std::mem;
 
 use crate::{
-    arena::{Arena, NodeRef},
-    block::{Block, Effect},
+    arena::Arena,
+    block::Block,
     cfg::Cfg,
-    node::{BlockId, Node, Offset},
+    node::{Node, Offset},
 };
 
 // TODO:
@@ -26,14 +26,16 @@ impl Cfg {
                 cfg.opt_closed_form_add(a);
                 if let Cfg::Block(block) = cfg.as_mut() {
                     if let Some(factor) = block.closed_form_iter_factor(a) {
-                        if let Some(has_guards) = block.opt_closed_form_add(factor, a) {
-                            let Cfg::Loop(body) = mem::replace(self, Cfg::Seq(Vec::new())) else {
-                                unreachable!();
-                            };
-                            if has_guards {
-                                *self = Cfg::If(body);
-                            } else {
-                                *self = *body;
+                        if let Some(has_guards) = block.is_pure() {
+                            if block.opt_closed_form_add(factor, a) {
+                                let Cfg::Loop(body) = mem::replace(self, Cfg::empty()) else {
+                                    unreachable!();
+                                };
+                                if has_guards {
+                                    *self = Cfg::If(body);
+                                } else {
+                                    *self = *body;
+                                }
                             }
                         }
                     }
@@ -70,19 +72,12 @@ impl Block {
 
     /// Converts a loop body, which has no net shift and adds an odd constant to
     /// the current cell, to its closed form. The block should be in a loop.
-    fn opt_closed_form_add(&mut self, factor: u8, a: &mut Arena) -> Option<bool> {
-        let mut has_guards = false;
-        for effect in &self.effects {
-            match effect {
-                Effect::GuardShift(_) => has_guards = true,
-                _ => return None,
-            }
-        }
+    fn opt_closed_form_add(&mut self, factor: u8, a: &mut Arena) -> bool {
         if !self
             .iter_memory()
             .all(|(offset, cell)| offset == Offset(0) || a.get(cell).is_add_assign(offset, self.id))
         {
-            return None;
+            return false;
         }
         let block_id = self.id;
         let iters = Node::Mul(
@@ -103,30 +98,7 @@ impl Block {
                 }
             }
         }
-        Some(has_guards)
-    }
-}
-
-impl NodeRef<'_> {
-    /// Returns whether this value is loop-invariant or an add-assign with a
-    /// loop-invariant value.
-    fn is_add_assign(&self, offset: Offset, block: BlockId) -> bool {
-        if let Node::Add(lhs, rhs) = *self.node() {
-            *self.get(lhs) == Node::Copy(offset, block) && self.get(rhs).is_loop_invariant()
-        } else {
-            self.is_loop_invariant()
-        }
-    }
-
-    /// Returns whether this value is loop-invariant.
-    fn is_loop_invariant(&self) -> bool {
-        match *self.node() {
-            Node::Copy(..) | Node::Input(_) => false,
-            Node::Const(_) => true,
-            Node::Add(lhs, rhs) | Node::Mul(lhs, rhs) => {
-                self.get(lhs).is_loop_invariant() && self.get(rhs).is_loop_invariant()
-            }
-        }
+        true
     }
 }
 
