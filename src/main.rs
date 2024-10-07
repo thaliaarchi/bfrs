@@ -18,7 +18,8 @@ fn do_main() -> Result<(), Box<dyn Error>> {
     let filename = args.skip(1).next().unwrap();
     let src = fs::read(&filename)?;
     let mut a = Arena::new();
-    let cfg = a.parse(&src)?;
+    let mut cfg = a.parse(&src)?;
+    cfg.opt_closed_form_add(&mut a);
     print!("{}", cfg.pretty(&a));
     Ok(())
 }

@@ -81,6 +81,15 @@ impl Block {
             .zip(self.memory.iter())
             .filter_map(|(offset, cell)| cell.map(|cell| (offset, cell)))
     }
+
+    /// Returns an iterator for mutable references to cells assigned in this
+    /// block.
+    pub fn iter_memory_mut(&mut self) -> impl Iterator<Item = (Offset, &mut NodeId)> + '_ {
+        (self.min_offset.0..)
+            .map(Offset)
+            .zip(self.memory.iter_mut())
+            .filter_map(|(offset, cell)| cell.as_mut().map(|cell| (offset, cell)))
+    }
 }
 
 impl BlockBuilder {
