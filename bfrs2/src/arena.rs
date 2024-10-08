@@ -8,6 +8,9 @@ use std::{
 
 use crate::node::{BlockId, InputId, Node};
 
+// TODO:
+// - BUG: Hashes can have collisions. This needs to use HashTable.
+
 /// An arena of unique nodes, identified by ID.
 pub struct Arena {
     /// Deduplicated nodes.
