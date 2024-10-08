@@ -19,8 +19,8 @@ impl Cfg {
         match self {
             Cfg::Block(_) => {}
             Cfg::Seq(seq) => {
-                seq.for_each(a, |cfg, a| cfg.opt_closed_form_add(a));
-                self.flatten();
+                seq.iter_mut().for_each(|cfg| cfg.opt_closed_form_add(a));
+                self.flatten(a);
             }
             Cfg::Loop(cfg) => {
                 cfg.opt_closed_form_add(a);

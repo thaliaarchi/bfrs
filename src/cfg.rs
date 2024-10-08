@@ -1,7 +1,6 @@
 use std::{
     fmt::{self, Debug, Formatter},
-    ops::Deref,
-    slice::Iter,
+    ops::{Deref, DerefMut},
 };
 
 use crate::{arena::Arena, block::Block};
@@ -32,12 +31,12 @@ impl Cfg {
     }
 
     /// Flattens a 1-element `Seq` into its element.
-    pub fn flatten(&mut self) {
-        match self {
-            Cfg::Seq(seq) if seq.len() == 1 => {
+    pub fn flatten(&mut self, a: &mut Arena) {
+        if let Cfg::Seq(seq) = self {
+            seq.flatten(a);
+            if seq.len() == 1 {
                 *self = seq.cfgs.pop().unwrap();
             }
-            _ => {}
         }
     }
 }
@@ -90,17 +89,8 @@ impl Seq {
         }
     }
 
-    /// Iterates mutably over `Seq`, then concatenates adjacent basic blocks
-    /// and flattens top-level sequences.
-    pub fn for_each(&mut self, a: &mut Arena, mut each: impl FnMut(&mut Cfg, &mut Arena)) {
-        for cfg in &mut self.cfgs {
-            each(cfg, a);
-        }
-        self.flatten(a);
-    }
-
     /// Concanates adjacent blocks and flattens top-level sequences.
-    fn flatten(&mut self, a: &mut Arena) {
+    pub fn flatten(&mut self, a: &mut Arena) {
         let mut has_nested_seq = false;
         let mut flattened_len = self.cfgs.len();
         if let Some(Cfg::Seq(seq)) = self.cfgs.first() {
@@ -137,6 +127,11 @@ impl Seq {
         &self.cfgs
     }
 
+    /// Gets this sequence as a mutable slice.
+    pub fn as_slice_mut(&mut self) -> &mut [Cfg] {
+        &mut self.cfgs
+    }
+
     /// Converts this to a `Cfg`, unwrapping it when it is a sinlgleton.
     pub fn into_cfg(mut self) -> Cfg {
         if self.cfgs.len() == 1 {
@@ -154,19 +149,16 @@ impl Debug for Seq {
     }
 }
 
-impl<'a> IntoIterator for &'a Seq {
-    type Item = &'a Cfg;
-    type IntoIter = Iter<'a, Cfg>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.cfgs.iter()
-    }
-}
-
 impl Deref for Seq {
     type Target = [Cfg];
 
     fn deref(&self) -> &Self::Target {
         self.as_slice()
+    }
+}
+
+impl DerefMut for Seq {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.as_slice_mut()
     }
 }
