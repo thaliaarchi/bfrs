@@ -1,4 +1,7 @@
-use std::mem;
+use std::{
+    mem,
+    sync::atomic::{AtomicBool, Ordering},
+};
 
 use crate::{
     arena::Arena,
@@ -6,6 +9,8 @@ use crate::{
     cfg::Cfg,
     node::{Node, Offset},
 };
+
+static UNSOUND_OUTLINE_GUARDS: AtomicBool = AtomicBool::new(false);
 
 impl Cfg {
     /// Converts loops, which have no net shift and add an odd constant to the
@@ -26,7 +31,7 @@ impl Cfg {
                                 let Cfg::Loop(body) = mem::replace(self, Cfg::empty()) else {
                                     unreachable!();
                                 };
-                                if has_guards {
+                                if has_guards && !UNSOUND_OUTLINE_GUARDS.load(Ordering::Acquire) {
                                     *self = Cfg::If(body);
                                 } else {
                                     *self = *body;
@@ -41,6 +46,12 @@ impl Cfg {
             }
         }
     }
+}
+
+/// Set whether optimizations can outline shift guards, making them
+/// unconditional. This is unsound in general.
+pub fn unsound_outline_guards(enable: bool) {
+    UNSOUND_OUTLINE_GUARDS.store(enable, Ordering::Release);
 }
 
 impl Block {
