@@ -23,14 +23,15 @@ impl Cfg {
                     if block.offset == Offset(0) && block.has_invariant_stores(a) {
                         let mut tail = block.clone_fresh(a);
                         tail.remove_invariant_stores(block, a);
-                        let tail = Cfg::Loop(Box::new(Cfg::Block(tail)));
+                        let mut tail = Cfg::Loop(Box::new(Cfg::Block(tail)));
+                        tail.opt_closed_form_add(a);
+                        tail.opt_peel(a);
 
                         let Cfg::Loop(peeled) = mem::replace(self, Cfg::empty()) else {
                             unreachable!();
                         };
                         let body = Seq::from_iter([*peeled, tail], a).into_cfg();
                         *self = Cfg::If(Box::new(body));
-                        self.opt_peel(a);
                         return;
                     }
                 }
