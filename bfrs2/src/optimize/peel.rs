@@ -22,7 +22,7 @@ impl Cfg {
                 if let Cfg::Block(block) = cfg.as_ref() {
                     if block.offset == Offset(0) && block.has_invariant_stores(a) {
                         let mut tail = block.clone_fresh(a);
-                        tail.remove_invariant_stores(a);
+                        tail.remove_invariant_stores(block, a);
                         let tail = Cfg::Loop(Box::new(Cfg::Block(tail)));
 
                         let Cfg::Loop(peeled) = mem::replace(self, Cfg::empty()) else {
@@ -48,7 +48,7 @@ impl Block {
     /// would not change after another iteration.
     fn has_invariant_stores(&self, a: &Arena) -> bool {
         for (_, cell) in self.iter_memory() {
-            if !a.get(cell).reads_from(self) {
+            if !a.get(cell).reads_from(self, self.id) {
                 return true;
             }
         }
@@ -57,10 +57,10 @@ impl Block {
 
     /// Removes any values stored in the block that would not change after
     /// another iteration.
-    fn remove_invariant_stores(&mut self, a: &Arena) {
-        for i in 0..self.memory.len() {
-            if self.memory[i].is_some_and(|cell| !a.get(cell).reads_from(self)) {
-                self.memory[i] = None;
+    fn remove_invariant_stores(&mut self, original: &Block, a: &Arena) {
+        for cell in &mut self.memory {
+            if cell.is_some_and(|cell| !a.get(cell).reads_from(original, self.id)) {
+                *cell = None;
             }
         }
     }
