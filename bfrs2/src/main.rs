@@ -1,6 +1,6 @@
 use std::{env::args_os, error::Error, fs, process::exit};
 
-use bfrs_minimal::{arena::Arena, optimize::unsound_outline_guards};
+use bfrs2::{arena::Arena, optimize::unsound_outline_guards};
 
 fn main() {
     if let Err(err) = do_main() {

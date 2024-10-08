@@ -4,7 +4,7 @@ use std::{
     io::Write,
 };
 
-use bfrs::{
+use bfrs1::{
     graph::{Graph, NodeId},
     node::{Condition, Node},
     region::Region,

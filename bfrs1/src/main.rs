@@ -4,7 +4,7 @@ use std::{
     process,
 };
 
-use bfrs::{graph::Graph, Ast};
+use bfrs1::{graph::Graph, Ast};
 
 fn main() {
     let args = env::args_os();

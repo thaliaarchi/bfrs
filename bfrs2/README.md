@@ -1,4 +1,4 @@
-# bfrs-minimal
+# bfrs2
 
-An optimizing Brainfuck compiler demonstrating the optimizations of bfrs with a
+An optimizing Brainfuck compiler demonstrating the optimizations of bfrs1 with a
 more minimal codebase.
