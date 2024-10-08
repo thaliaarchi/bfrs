@@ -15,14 +15,15 @@ impl Cfg {
         match self {
             Cfg::Block(_) => {}
             Cfg::Seq(seq) => {
-                seq.for_each(a, |cfg, a| cfg.opt_peel(a));
-                self.flatten();
+                seq.iter_mut().for_each(|cfg| cfg.opt_peel(a));
+                self.flatten(a);
             }
             Cfg::Loop(cfg) => {
                 if let Cfg::Block(block) = cfg.as_ref() {
                     if block.offset == Offset(0) && block.has_invariant_stores(a) {
                         let mut tail = block.clone_fresh(a);
                         tail.remove_invariant_stores(block, a);
+                        tail.copy_const(block, a);
                         let mut tail = Cfg::Loop(Box::new(Cfg::Block(tail)));
                         tail.opt_closed_form_add(a);
                         tail.opt_peel(a);
