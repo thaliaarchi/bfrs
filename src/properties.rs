@@ -7,22 +7,12 @@ use crate::{
 impl NodeRef<'_> {
     /// Returns whether this value is loop-invariant or an add-assign with a
     /// loop-invariant value.
-    pub fn is_add_assign(&self, offset: Offset, block: BlockId) -> bool {
+    pub fn is_add_assign(&self, offset: Offset, block: &Block) -> bool {
         if let Node::Add(lhs, rhs) = *self.node() {
-            *self.get(lhs) == Node::Copy(offset, block) && self.get(rhs).is_loop_invariant()
+            *self.get(lhs) == Node::Copy(offset, block.id)
+                && !self.get(rhs).reads_from(block, block.id)
         } else {
-            self.is_loop_invariant()
-        }
-    }
-
-    /// Returns whether this value is loop-invariant.
-    pub fn is_loop_invariant(&self) -> bool {
-        match *self.node() {
-            Node::Copy(..) | Node::Input(_) => false,
-            Node::Const(_) => true,
-            Node::Add(lhs, rhs) | Node::Mul(lhs, rhs) => {
-                self.get(lhs).is_loop_invariant() && self.get(rhs).is_loop_invariant()
-            }
+            !self.reads_from(block, block.id)
         }
     }
 

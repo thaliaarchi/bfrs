@@ -81,7 +81,7 @@ impl Block {
     fn opt_closed_form_add(&mut self, factor: u8, a: &mut Arena) -> bool {
         if !self
             .iter_memory()
-            .all(|(offset, cell)| offset == Offset(0) || a.get(cell).is_add_assign(offset, self.id))
+            .all(|(offset, cell)| offset == Offset(0) || a.get(cell).is_add_assign(offset, self))
         {
             return false;
         }
