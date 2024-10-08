@@ -38,9 +38,7 @@ impl Block {
     /// definition is a constant.
     pub fn copy_const(&mut self, pred: &Block, a: &mut Arena) {
         let curr = self.id;
-        for (_, cell) in self.iter_memory_mut() {
-            *cell = cell.copy_const(curr, pred, a);
-        }
+        self.iter_memory_mut(a, |_, cell, a| Some(cell.copy_const(curr, pred, a)));
         for effect in &mut self.effects {
             if let Effect::Output(values) = effect {
                 for value in values {
