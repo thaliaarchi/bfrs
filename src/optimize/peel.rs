@@ -59,11 +59,14 @@ impl Block {
 
     /// Removes any values stored in the block that would not change after
     /// another iteration.
-    fn remove_invariant_stores(&mut self, original: &Block, a: &Arena) {
-        for cell in &mut self.memory {
-            if cell.is_some_and(|cell| !a.get(cell).reads_from(original, self.id)) {
-                *cell = None;
+    fn remove_invariant_stores(&mut self, original: &Block, a: &mut Arena) {
+        let curr = self.id;
+        self.iter_memory_mut(a, |_, cell, a| {
+            if !a.get(cell).reads_from(original, curr) {
+                None
+            } else {
+                Some(cell)
             }
-        }
+        });
     }
 }

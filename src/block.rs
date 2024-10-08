@@ -14,14 +14,14 @@ pub struct Block {
     /// The ID of this block, unique per arena.
     pub id: BlockId,
     /// The values modified in this memory.
-    pub memory: VecDeque<Option<NodeId>>,
+    memory: VecDeque<Option<NodeId>>,
     /// The sequence of effects in this basic block.
     pub effects: Vec<Effect>,
 
     /// The relative offset of the cell pointer.
     pub offset: Offset,
     /// The relative offset of the first cell in `memory`.
-    pub min_offset: Offset,
+    min_offset: Offset,
     /// The minimum offset left that has been guarded.
     pub guarded_left: Offset,
     /// The maximum offset right that has been guarded.
@@ -70,6 +70,11 @@ impl Block {
             .get(offset.try_index_from(self.min_offset)?)
             .copied()
             .flatten()
+    }
+
+    /// The minimum offset, which has a modified value in this basic block.
+    pub fn min_offset(&self) -> Offset {
+        self.min_offset
     }
 
     /// The maximum offset, which has a modified value in this basic block.
@@ -185,13 +190,29 @@ impl Block {
             .filter_map(|(offset, cell)| cell.map(|cell| (offset, cell)))
     }
 
-    /// Returns an iterator for mutable references to cells assigned in this
-    /// block.
-    pub fn iter_memory_mut(&mut self) -> impl Iterator<Item = (Offset, &mut NodeId)> + '_ {
-        (self.min_offset.0..)
+    /// Iterates mutably over cells assigned in this block.
+    pub fn iter_memory_mut(
+        &mut self,
+        a: &mut Arena,
+        mut each: impl FnMut(Offset, NodeId, &mut Arena) -> Option<NodeId>,
+    ) {
+        for (offset, slot) in (self.min_offset.0..)
             .map(Offset)
             .zip(self.memory.iter_mut())
-            .filter_map(|(offset, cell)| cell.as_mut().map(|cell| (offset, cell)))
+        {
+            if let Some(cell) = slot {
+                *slot = match each(offset, *cell, a) {
+                    Some(new) => {
+                        if a[new] == Node::Copy(offset, self.id) {
+                            None
+                        } else {
+                            Some(new)
+                        }
+                    }
+                    None => None,
+                };
+            }
+        }
     }
 }
 

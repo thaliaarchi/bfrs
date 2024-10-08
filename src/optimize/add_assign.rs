@@ -91,19 +91,19 @@ impl Block {
             Node::Const(factor).insert_ideal(a),
         )
         .insert(a);
-        for (offset, cell) in self.iter_memory_mut() {
+        self.iter_memory_mut(a, |offset, cell, a| {
             if offset == Offset(0) {
-                *cell = Node::Const(0).insert_ideal(a);
+                Some(Node::Const(0).insert_ideal(a))
             } else {
-                match a[*cell] {
+                match a[cell] {
                     Node::Add(lhs, rhs) => {
                         debug_assert_eq!(a[lhs], Node::Copy(offset, block_id));
-                        *cell = Node::Add(lhs, Node::Mul(rhs, iters).insert(a)).insert(a);
+                        Some(Node::Add(lhs, Node::Mul(rhs, iters).insert(a)).insert(a))
                     }
-                    _ => {}
+                    _ => Some(cell),
                 }
             }
-        }
+        });
         true
     }
 }
