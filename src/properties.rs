@@ -27,15 +27,16 @@ impl NodeRef<'_> {
     }
 
     /// Returns whether this value reads from the block.
-    pub fn reads_from(&self, block: &Block) -> bool {
+    pub fn reads_from(&self, block: &Block, copy_from: BlockId) -> bool {
         match *self.node() {
             Node::Copy(offset, block_id) => {
-                block_id == block.id && block.get_cell(offset).is_some()
+                block_id == copy_from && block.get_cell(offset).is_some()
             }
             Node::Const(_) => false,
             Node::Input(_) => true,
             Node::Add(lhs, rhs) | Node::Mul(lhs, rhs) => {
-                self.get(lhs).reads_from(block) || self.get(rhs).reads_from(block)
+                self.get(lhs).reads_from(block, copy_from)
+                    || self.get(rhs).reads_from(block, copy_from)
             }
         }
     }
