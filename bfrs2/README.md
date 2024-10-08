@@ -7,7 +7,8 @@ add-assign loops and converts them to closed form multiplies, peels
 quasi-invariant[^peel-paper] statements recursively, and propagates constants
 to copies using them.
 
-Here's a [multiply](../tests/mul.b) snippet, optimized:
+As an example of its optimization capabilities, this [multiply](../tests/mul.b)
+snippet:
 
 ```brainfuck
 [
@@ -16,6 +17,35 @@ Here's a [multiply](../tests/mul.b) snippet, optimized:
  <<-
 ]
 ```
+
+corresponds to this C-like pretty-printed IR:
+
+```rust
+while p[0] != 0 {
+    p += 1
+    while p[0] != 0 {
+        let c0 = p[0]
+        let c1 = p[1]
+        let c2 = p[2]
+        p[0] = c0 - 1
+        p[1] = c1 + 1
+        p[2] = c2 + 1
+    }
+    p += 1
+    while p[0] != 0 {
+        let cn1 = p[-1]
+        let c0 = p[0]
+        p[-1] = cn1 + 1
+        p[0] = c0 - 1
+    }
+    let cn2 = p[-2]
+    p[-2] = cn2 - 1
+    p -= 2
+}
+```
+
+bfrs2 transforms it to the following, by converting the inner loops to copies,
+peeling the outer loop once, then converting the outer loop to a multiply:
 
 ```rust
 if p[0] != 0 {
@@ -30,7 +60,7 @@ if p[0] != 0 {
 }
 ```
 
-And my [move-right](../tests/move_right.b) example, optimized:
+Similarly, my [move-right](../tests/move_right.b) example:
 
 ```brainfuck
 [
@@ -41,6 +71,39 @@ And my [move-right](../tests/move_right.b) example, optimized:
  <-
 ]
 ```
+
+corresponds to this C-like pretty-printed IR:
+
+```rust
+while p[0] != 0 {
+    p += 3
+    while p[0] != 0 {
+        let c0 = p[0]
+        p[0] = c0 - 1
+    }
+    p -= 1
+    while p[0] != 0 {
+        let c0 = p[0]
+        let c1 = p[1]
+        p[0] = c0 - 1
+        p[1] = c1 + 1
+    }
+    p -= 1
+    while p[0] != 0 {
+        let c0 = p[0]
+        let c1 = p[1]
+        p[0] = c0 - 1
+        p[1] = c1 + 1
+    }
+    let cn1 = p[-1]
+    p[-1] = cn1 - 1
+    p -= 1
+}
+```
+
+bfrs2 transforms it to the following, by converting inner loops to copies,
+eliminating shifts, then peeling the outer loop three times, until it can be
+converted to its closed form:
 
 ```rust
 if p[0] != 0 {

@@ -137,7 +137,11 @@ impl<'w, 'a> PrettyPrinter<'w, 'a> {
         }
         if block.offset != Offset(0) {
             self.indent(indent)?;
-            write!(self.w, "shift({})\n", block.offset.0)?;
+            if block.offset.0 < 0 {
+                write!(self.w, "p -= {}\n", block.offset.0.unsigned_abs())?;
+            } else {
+                write!(self.w, "p += {}\n", block.offset.0)?;
+            }
         }
         if braced {
             self.indent(indent - 1)?;
