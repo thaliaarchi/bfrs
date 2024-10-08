@@ -1,6 +1,6 @@
 use std::{env::args_os, error::Error, fs, process::exit};
 
-use bfrs_minimal::arena::Arena;
+use bfrs_minimal::{arena::Arena, optimize::unsound_outline_guards};
 
 fn main() {
     if let Err(err) = do_main() {
@@ -19,6 +19,7 @@ fn do_main() -> Result<(), Box<dyn Error>> {
     let src = fs::read(&filename)?;
     let mut a = Arena::new();
     let mut cfg = a.parse(&src)?;
+    unsound_outline_guards(true);
     cfg.opt_closed_form_add(&mut a);
     cfg.opt_peel(&mut a);
     print!("{}", cfg.pretty(&a));
