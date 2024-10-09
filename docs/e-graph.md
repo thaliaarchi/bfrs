@@ -8,9 +8,9 @@ For now, keep the design of basic blocks owning memory and effects.
 
 ```rust
 struct Graph {
-    nodes: Vec<NodeEntry>,
-    ids: hashbrown::HashTable<NodeId>, // Node -> NodeId
-    eclasses: Vec<Eclass>,
+    nodes: Vec<NodeEntry>,                  // NodeId -> Node
+    node_ids: hashbrown::HashTable<NodeId>, // Node -> NodeId
+    eclasses: Vec<Eclass>,                  // EclassId -> Eclass
 }
 
 struct NodeEntry {
@@ -20,16 +20,19 @@ struct NodeEntry {
     creator: Pass,
 }
 
+struct Eclass {
+    canon: NodeId,
+    nodes: Vec<NodeId>,
+}
+
+struct EclassId(NonZero<u32>);
+
 enum Pass {
     Parse,
     AddLoopToMul,
     QuasiInvariantPeel,
+    CopyConst,
     // …
-}
-
-struct Eclass {
-    canon: NodeId,
-    nodes: Vec<NodeId>,
 }
 
 enum Node {

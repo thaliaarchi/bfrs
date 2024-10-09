@@ -9,9 +9,8 @@ use std::{
 };
 
 use hashbrown::{
-    hash_map::DefaultHashBuilder,
     hash_table::{Entry as TableEntry, OccupiedEntry},
-    HashTable,
+    DefaultHashBuilder, HashTable,
 };
 
 use crate::graph::arena::{Arena, Id};

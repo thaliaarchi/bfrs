@@ -9,3 +9,4 @@ keywords = ["brainfuck", "compiler"]
 categories = ["compilers"]
 
 [dependencies]
+hashbrown = "0.15.0"

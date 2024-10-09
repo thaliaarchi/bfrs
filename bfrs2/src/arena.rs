@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
     fmt::{self, Debug, Formatter},
-    hash::{BuildHasher, BuildHasherDefault, DefaultHasher},
+    hash::BuildHasher,
     num::NonZero,
     ops::{Deref, Index},
 };
@@ -10,6 +10,7 @@ use crate::node::{BlockId, InputId, Node};
 
 // TODO:
 // - BUG: Hashes can have collisions. This needs to use HashTable.
+// - Remove NodeId::from_index.
 
 /// An arena of unique nodes, identified by ID.
 pub struct Arena {
@@ -49,7 +50,7 @@ impl Arena {
     /// already be idealized. Any structurally equivalent nodes are deduplicated
     /// and receive the same ID.
     pub fn insert_ideal(&mut self, node: Node) -> NodeId {
-        let hash = BuildHasherDefault::<DefaultHasher>::default().hash_one(&node);
+        let hash = self.ids.hasher().hash_one(&node);
         if let Some(&id) = self.ids.get(&hash) {
             return id;
         }
@@ -87,6 +88,11 @@ impl Index<NodeId> for Arena {
 }
 
 impl NodeId {
+    /// Constructs a node ID from an index.
+    pub(crate) fn from_index(index: u32) -> Self {
+        NodeId(NonZero::new(index + 1).unwrap())
+    }
+
     /// Gets the index of the node in its arena.
     pub fn index(&self) -> usize {
         (self.0.get() - 1) as usize
