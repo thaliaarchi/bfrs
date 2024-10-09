@@ -3,7 +3,7 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
-use crate::{arena::Arena, block::Block};
+use crate::{block::Block, egraph::Graph};
 
 /// The control-flow graph of a program.
 #[derive(Clone)]
@@ -31,9 +31,9 @@ impl Cfg {
     }
 
     /// Flattens a 1-element `Seq` into its element.
-    pub fn flatten(&mut self, a: &mut Arena) {
+    pub fn flatten(&mut self, g: &mut Graph) {
         if let Cfg::Seq(seq) = self {
-            seq.flatten(a);
+            seq.flatten(g);
             if seq.len() == 1 {
                 *self = seq.cfgs.pop().unwrap();
             }
@@ -66,10 +66,10 @@ impl Seq {
     }
 
     /// Constructs a sequence from an iterator of `Cfg`s.
-    pub fn from_iter(iter: impl IntoIterator<Item = Cfg>, a: &mut Arena) -> Self {
+    pub fn from_iter(iter: impl IntoIterator<Item = Cfg>, g: &mut Graph) -> Self {
         let iter = iter.into_iter();
         let mut seq = Seq::with_capacity(iter.size_hint().0);
-        iter.for_each(|cfg| seq.push(cfg, a));
+        iter.for_each(|cfg| seq.push(cfg, g));
         seq
     }
 
@@ -81,16 +81,16 @@ impl Seq {
 
     /// Pushes a `Cfg` to the sequence and concanates adjacent blocks and
     /// flattens top-level sequences.
-    pub fn push(&mut self, cfg: Cfg, a: &mut Arena) {
+    pub fn push(&mut self, cfg: Cfg, g: &mut Graph) {
         match (self.cfgs.last_mut(), cfg) {
-            (Some(Cfg::Block(block1)), Cfg::Block(block2)) => block1.concat(&block2, a),
+            (Some(Cfg::Block(block1)), Cfg::Block(block2)) => block1.concat(&block2, g),
             (_, Cfg::Seq(seq)) => self.cfgs.extend(seq.cfgs.into_iter()),
             (_, cfg) => self.cfgs.push(cfg),
         }
     }
 
     /// Concanates adjacent blocks and flattens top-level sequences.
-    pub fn flatten(&mut self, a: &mut Arena) {
+    pub fn flatten(&mut self, g: &mut Graph) {
         let mut has_nested_seq = false;
         let mut flattened_len = self.cfgs.len();
         if let Some(Cfg::Seq(seq)) = self.cfgs.first() {
@@ -99,7 +99,7 @@ impl Seq {
         }
         self.cfgs.dedup_by(|cfg2, cfg1| match (cfg1, cfg2) {
             (Cfg::Block(block1), Cfg::Block(block2)) => {
-                block1.concat(block2, a);
+                block1.concat(block2, g);
                 true
             }
             (_, Cfg::Seq(seq)) => {

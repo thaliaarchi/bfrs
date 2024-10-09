@@ -2,8 +2,8 @@
 
 An optimizing Brainfuck compiler. Its IR is a Control Data Flow Graph with
 owned and structured CFG nodes which are mutated in place, and floating data
-nodes for pure operations which are managed immutably in an arena. It recognizes
-add-assign loops and converts them to closed form multiplies, peels
+nodes for pure operations which are managed immutably in an e-graph. It
+recognizes add-assign loops and converts them to closed form multiplies, peels
 quasi-invariant[^peel-paper] statements recursively, and propagates constants
 to copies using them.
 
@@ -138,8 +138,9 @@ could get.
 
 I've got three passes and, unfortunately, their intersection interacts
 unsoundly. I have to toggle passes to get the above output, so there's bugs to
-fix. Ultimately, passes are difficult to construct and debug, and I intend to
-move to an [e-graph IR](../docs/e-graph.md) without equality saturation.
+fix. Ultimately, passes are difficult to construct and debug, and I am moving
+to an [e-graph IR](../docs/e-graph.md) without equality saturation, so that
+rewrites preserve the old versions.
 
 [^peel-paper]: Jean-Yves Moyen, Thomas Rubiano, and Thomas Seiller.
   [“Loop Quasi-Invariant Chunk Motion by peeling with statement composition”](https://www.cs.bham.ac.uk/~zeilbern/lola2017/abstracts/LOLA_2017_paper_1.pdf).

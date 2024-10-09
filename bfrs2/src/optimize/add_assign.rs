@@ -4,9 +4,9 @@ use std::{
 };
 
 use crate::{
-    arena::Arena,
     block::Block,
     cfg::Cfg,
+    egraph::Graph,
     node::{Node, Offset},
 };
 
@@ -15,19 +15,19 @@ static UNSOUND_OUTLINE_GUARDS: AtomicBool = AtomicBool::new(false);
 impl Cfg {
     /// Converts loops, which have no net shift and add an odd constant to the
     /// current cell, to their closed form.
-    pub fn opt_closed_form_add(&mut self, a: &mut Arena) {
+    pub fn opt_closed_form_add(&mut self, g: &mut Graph) {
         match self {
             Cfg::Block(_) => {}
             Cfg::Seq(seq) => {
-                seq.iter_mut().for_each(|cfg| cfg.opt_closed_form_add(a));
-                self.flatten(a);
+                seq.iter_mut().for_each(|cfg| cfg.opt_closed_form_add(g));
+                self.flatten(g);
             }
             Cfg::Loop(cfg) => {
-                cfg.opt_closed_form_add(a);
+                cfg.opt_closed_form_add(g);
                 if let Cfg::Block(block) = cfg.as_mut() {
-                    if let Some(factor) = block.closed_form_iter_factor(a) {
+                    if let Some(factor) = block.closed_form_iter_factor(g) {
                         if let Some(has_guards) = block.is_pure() {
-                            if block.opt_closed_form_add(factor, a) {
+                            if block.opt_closed_form_add(factor, g) {
                                 let Cfg::Loop(body) = mem::replace(self, Cfg::empty()) else {
                                     unreachable!();
                                 };
@@ -42,7 +42,7 @@ impl Cfg {
                 }
             }
             Cfg::If(cfg_then) => {
-                cfg_then.opt_closed_form_add(a);
+                cfg_then.opt_closed_form_add(g);
             }
         }
     }
@@ -59,12 +59,12 @@ impl Block {
     /// execute as the body of a loop. The number of iterations is the factor
     /// multiplied by the current cell. This can be calculated when the block
     /// has no net shift and an odd constant is added to the current cell.
-    fn closed_form_iter_factor(&self, a: &Arena) -> Option<u8> {
+    fn closed_form_iter_factor(&self, g: &Graph) -> Option<u8> {
         if self.offset == Offset(0) {
             if let Some(current) = self.get_cell(Offset(0)) {
-                if let Node::Add(lhs, rhs) = a[current] {
-                    if a[lhs] == Node::Copy(Offset(0), self.id) {
-                        if let Node::Const(addend) = a[rhs] {
+                if let Node::Add(lhs, rhs) = g[current] {
+                    if g[lhs] == Node::Copy(Offset(0), self.id) {
+                        if let Node::Const(addend) = g[rhs] {
                             if let Some(factor) = mod_inverse(addend.wrapping_neg()) {
                                 return Some(factor);
                             }
@@ -78,20 +78,20 @@ impl Block {
 
     /// Converts a loop body, which has no net shift and adds an odd constant to
     /// the current cell, to its closed form. The block should be in a loop.
-    fn opt_closed_form_add(&mut self, factor: u8, a: &mut Arena) -> bool {
+    fn opt_closed_form_add(&mut self, factor: u8, g: &mut Graph) -> bool {
         if !self
             .iter_memory()
-            .all(|(offset, cell)| offset == Offset(0) || a.get(cell).is_add_assign(offset, self))
+            .all(|(offset, cell)| offset == Offset(0) || g.get(cell).is_add_assign(offset, self))
         {
             return false;
         }
         let block_id = self.id;
         let iters = Node::Mul(
-            Node::Copy(Offset(0), block_id).insert_ideal(a),
-            Node::Const(factor).insert_ideal(a),
+            Node::Copy(Offset(0), block_id).insert_ideal(g),
+            Node::Const(factor).insert_ideal(g),
         )
-        .insert(a);
-        self.iter_memory_mut(a, |offset, cell, a| {
+        .insert(g);
+        self.iter_memory_mut(g, |offset, cell, a| {
             if offset == Offset(0) {
                 Some(Node::Const(0).insert_ideal(a))
             } else {

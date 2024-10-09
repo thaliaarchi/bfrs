@@ -3,7 +3,7 @@ use std::{
     ops::{Add, AddAssign},
 };
 
-use crate::arena::{Arena, NodeId};
+use crate::egraph::{Graph, NodeId};
 
 /// A node for a byte computation.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -20,11 +20,11 @@ pub enum Node {
     Mul(NodeId, NodeId),
 }
 
-/// An ID for a basic block, unique per arena.
+/// An ID for a basic block, unique per e-graph.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct BlockId(pub u32);
 
-/// An ID for an input, unique per arena.
+/// An ID for an input, unique per e-graph.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct InputId(pub u32);
 
@@ -33,111 +33,111 @@ pub struct InputId(pub u32);
 pub struct Offset(pub i64);
 
 impl Node {
-    /// Inserts this node into the arena and transforms it to its ideal
+    /// Inserts this node into the e-graph and transforms it to its ideal
     /// representation. Any structurally equivalent nodes are deduplicated and
     /// receive the same ID.
-    pub fn insert(self, a: &mut Arena) -> NodeId {
+    pub fn insert(self, g: &mut Graph) -> NodeId {
         match self {
             Node::Add(mut lhs, mut rhs) => {
-                if let Node::Add(b, c) = a[rhs] {
-                    if let Node::Add(..) = a[lhs] {
-                        return Node::Add(Node::Add(lhs, b).insert(a), c).insert(a);
+                if let Node::Add(b, c) = g[rhs] {
+                    if let Node::Add(..) = g[lhs] {
+                        return Node::Add(Node::Add(lhs, b).insert(g), c).insert(g);
                     }
                     mem::swap(&mut lhs, &mut rhs);
                 }
-                let (tail, head) = match a[lhs] {
+                let (tail, head) = match g[lhs] {
                     Node::Add(a, b) => (Some(a), b),
                     _ => (None, lhs),
                 };
-                let (res, idealize) = match (&a[head], &a[rhs]) {
-                    (&Node::Const(x), &Node::Const(y)) => {
-                        (Node::Const(x.wrapping_add(y)).insert_ideal(a), true)
+                let (res, idealize) = match (&g[head], &g[rhs]) {
+                    (&Node::Const(a), &Node::Const(b)) => {
+                        (Node::Const(a.wrapping_add(b)).insert_ideal(g), true)
                     }
                     (_, Node::Const(0)) => (head, false),
                     (Node::Const(0), _) => (rhs, true),
                     (Node::Const(_), _) => {
                         if let Some(tail) = tail {
-                            return Node::Add(Node::Add(tail, rhs).insert(a), head).insert(a);
+                            return Node::Add(Node::Add(tail, rhs).insert(g), head).insert(g);
                         } else {
-                            return Node::Add(rhs, head).insert_ideal(a);
+                            return Node::Add(rhs, head).insert_ideal(g);
                         }
                     }
                     _ if head == rhs => (
-                        Node::Mul(head, Node::Const(2).insert_ideal(a)).insert(a),
+                        Node::Mul(head, Node::Const(2).insert_ideal(g)).insert(g),
                         true,
                     ),
-                    (&Node::Mul(x, y), _) if x == rhs => {
-                        let n = Node::Add(y, Node::Const(1).insert_ideal(a)).insert(a);
-                        (Node::Mul(x, n).insert(a), true)
+                    (&Node::Mul(a, b), _) if a == rhs => {
+                        let n = Node::Add(b, Node::Const(1).insert_ideal(g)).insert(g);
+                        (Node::Mul(a, n).insert(g), true)
                     }
                     (_, &Node::Mul(b, c)) if b == head => {
-                        let n = Node::Add(c, Node::Const(1).insert_ideal(a)).insert(a);
-                        (Node::Mul(b, n).insert(a), true)
+                        let n = Node::Add(c, Node::Const(1).insert_ideal(g)).insert(g);
+                        (Node::Mul(b, n).insert(g), true)
                     }
-                    _ => return Node::Add(lhs, rhs).insert_ideal(a),
+                    _ => return Node::Add(lhs, rhs).insert_ideal(g),
                 };
                 if let Some(tail) = tail {
                     if res == head {
                         lhs
                     } else if idealize {
-                        Node::Add(tail, res).insert(a)
+                        Node::Add(tail, res).insert(g)
                     } else {
-                        Node::Add(tail, res).insert_ideal(a)
+                        Node::Add(tail, res).insert_ideal(g)
                     }
                 } else {
                     res
                 }
             }
             Node::Mul(mut lhs, mut rhs) => {
-                if let Node::Mul(b, c) = a[rhs] {
-                    if let Node::Mul(..) = a[lhs] {
-                        return Node::Mul(Node::Mul(lhs, b).insert(a), c).insert(a);
+                if let Node::Mul(b, c) = g[rhs] {
+                    if let Node::Mul(..) = g[lhs] {
+                        return Node::Mul(Node::Mul(lhs, b).insert(g), c).insert(g);
                     }
                     mem::swap(&mut lhs, &mut rhs);
                 }
-                let (tail, head) = match a[lhs] {
+                let (tail, head) = match g[lhs] {
                     Node::Mul(a, b) => (Some(a), b),
                     _ => (None, lhs),
                 };
-                let (res, idealize) = match (&a[head], &a[rhs]) {
-                    (&Node::Const(x), &Node::Const(y)) => {
-                        (Node::Const(x.wrapping_mul(y)).insert_ideal(a), true)
+                let (res, idealize) = match (&g[head], &g[rhs]) {
+                    (&Node::Const(a), &Node::Const(b)) => {
+                        (Node::Const(a.wrapping_mul(b)).insert_ideal(g), true)
                     }
                     (_, Node::Const(1)) => (head, false),
                     (Node::Const(1), _) => (rhs, true),
                     (_, Node::Const(0)) | (Node::Const(0), _) => {
-                        return Node::Const(0).insert_ideal(a)
+                        return Node::Const(0).insert_ideal(g)
                     }
                     (Node::Const(_), _) => {
                         if let Some(tail) = tail {
-                            return Node::Mul(Node::Mul(tail, rhs).insert(a), head).insert(a);
+                            return Node::Mul(Node::Mul(tail, rhs).insert(g), head).insert(g);
                         } else {
-                            return Node::Mul(rhs, head).insert_ideal(a);
+                            return Node::Mul(rhs, head).insert_ideal(g);
                         }
                     }
-                    _ => return Node::Mul(lhs, rhs).insert_ideal(a),
+                    _ => return Node::Mul(lhs, rhs).insert_ideal(g),
                 };
                 if let Some(tail) = tail {
                     if res == head {
                         lhs
                     } else if idealize {
-                        Node::Mul(tail, res).insert(a)
+                        Node::Mul(tail, res).insert(g)
                     } else {
-                        Node::Mul(tail, res).insert_ideal(a)
+                        Node::Mul(tail, res).insert_ideal(g)
                     }
                 } else {
                     res
                 }
             }
-            _ => self.insert_ideal(a),
+            _ => self.insert_ideal(g),
         }
     }
 
-    /// Inserts this node into the arena, without idealizing. The node must
+    /// Inserts this node into the e-graph, without idealizing. The node must
     /// already be idealized. Any structurally equivalent nodes are deduplicated
     /// and receive the same ID.
-    pub fn insert_ideal(self, a: &mut Arena) -> NodeId {
-        a.insert_ideal(self)
+    pub fn insert_ideal(self, g: &mut Graph) -> NodeId {
+        g.insert(self)
     }
 }
 

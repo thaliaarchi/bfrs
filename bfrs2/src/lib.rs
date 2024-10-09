@@ -1,4 +1,3 @@
-pub mod arena;
 pub mod block;
 pub mod cfg;
 #[deny(missing_docs)]

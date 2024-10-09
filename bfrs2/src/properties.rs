@@ -1,6 +1,6 @@
 use crate::{
-    arena::NodeRef,
     block::{Block, Effect},
+    egraph::NodeRef,
     node::{BlockId, Node, Offset},
 };
 

@@ -5,42 +5,42 @@ use std::{
 };
 
 use crate::{
-    arena::{Arena, NodeId, NodeRef},
     block::{Block, Effect},
     cfg::Cfg,
+    egraph::{Graph, NodeId, NodeRef},
     node::{BlockId, Node, Offset},
 };
 
 impl Cfg {
-    pub fn pretty(&self, a: &Arena) -> String {
+    pub fn pretty(&self, g: &Graph) -> String {
         let mut s = String::new();
-        PrettyPrinter::new(&mut s, a).pretty_cfg(self, 0).unwrap();
+        PrettyPrinter::new(&mut s, g).pretty_cfg(self, 0).unwrap();
         s
     }
 }
 
 impl Display for NodeRef<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        PrettyPrinter::new(f, self.arena()).pretty_node(self.id(), false)
+        PrettyPrinter::new(f, self.graph()).pretty_node(self.id(), false)
     }
 }
 
-struct PrettyPrinter<'w, 'a> {
+struct PrettyPrinter<'w, 'g> {
     w: &'w mut (dyn Write + 'w),
     indent_buf: String,
     copies_scratch: BTreeSet<Offset>,
-    a: &'a Arena,
+    g: &'g Graph,
 }
 
-impl<'w, 'a> PrettyPrinter<'w, 'a> {
+impl<'w, 'g> PrettyPrinter<'w, 'g> {
     const INDENT: &'static str = "    ";
 
-    fn new(w: &'w mut (dyn Write + 'w), a: &'a Arena) -> Self {
+    fn new(w: &'w mut (dyn Write + 'w), g: &'g Graph) -> Self {
         PrettyPrinter {
             w,
             indent_buf: Self::INDENT.repeat(4),
             copies_scratch: BTreeSet::new(),
-            a,
+            g,
         }
     }
 
@@ -118,7 +118,7 @@ impl<'w, 'a> PrettyPrinter<'w, 'a> {
         let mut copies = mem::take(&mut self.copies_scratch);
         copies.clear();
         for (_, node) in block.iter_memory() {
-            visit_copies(self.a.get(node), block.id, &mut copies);
+            visit_copies(self.g.get(node), block.id, &mut copies);
         }
         for &copy in &copies {
             self.indent(indent)?;
@@ -128,7 +128,7 @@ impl<'w, 'a> PrettyPrinter<'w, 'a> {
         }
         self.copies_scratch = copies;
         for (offset, node) in block.iter_memory() {
-            if self.a[node] != Node::Copy(offset, block.id) {
+            if self.g[node] != Node::Copy(offset, block.id) {
                 self.indent(indent)?;
                 write!(self.w, "p[{}] = ", offset.0)?;
                 self.pretty_node(node, true)?;
@@ -151,7 +151,7 @@ impl<'w, 'a> PrettyPrinter<'w, 'a> {
     }
 
     fn pretty_node(&mut self, node: NodeId, use_copies: bool) -> fmt::Result {
-        let node = self.a.get(node);
+        let node = self.g.get(node);
         match *node.node() {
             Node::Copy(offset, _) => {
                 if use_copies {
@@ -164,7 +164,7 @@ impl<'w, 'a> PrettyPrinter<'w, 'a> {
             Node::Input(id) => write!(self.w, "in{}", id.0),
             Node::Add(lhs, rhs) => {
                 self.pretty_node(lhs, use_copies)?;
-                let rhs_node = &self.a[rhs];
+                let rhs_node = &self.g[rhs];
                 if let Node::Const(rhs) = *rhs_node {
                     if (rhs as i8) < 0 {
                         return write!(self.w, " - {}", (rhs as i8).unsigned_abs());
@@ -174,11 +174,11 @@ impl<'w, 'a> PrettyPrinter<'w, 'a> {
                 self.group_node(rhs, matches!(rhs_node, Node::Add(..)), use_copies)
             }
             Node::Mul(lhs, rhs) => {
-                self.group_node(lhs, matches!(&self.a[lhs], Node::Add(..)), use_copies)?;
+                self.group_node(lhs, matches!(&self.g[lhs], Node::Add(..)), use_copies)?;
                 write!(self.w, " * ")?;
                 self.group_node(
                     rhs,
-                    matches!(&self.a[rhs], Node::Add(..) | Node::Mul(..)),
+                    matches!(&self.g[rhs], Node::Add(..) | Node::Mul(..)),
                     use_copies,
                 )
             }
@@ -211,16 +211,16 @@ impl<'w, 'a> PrettyPrinter<'w, 'a> {
                 self.pretty_array(values)?;
                 write!(self.w, ")")
             }
-            &Effect::Input(id) => write!(self.w, "let {} = input()", self.a.get(id)),
+            &Effect::Input(id) => write!(self.w, "let {} = input()", self.g.get(id)),
             &Effect::GuardShift(offset) => write!(self.w, "guard_shift({})", offset.0),
         }
     }
 
     fn pretty_array(&mut self, values: &[NodeId]) -> fmt::Result {
-        if values.iter().all(|&v| matches!(self.a[v], Node::Const(_))) {
+        if values.iter().all(|&v| matches!(self.g[v], Node::Const(_))) {
             write!(self.w, "\"")?;
             for &v in values {
-                let Node::Const(b) = self.a[v] else {
+                let Node::Const(b) = self.g[v] else {
                     unreachable!();
                 };
                 self.escape_char(b)?;
@@ -232,7 +232,7 @@ impl<'w, 'a> PrettyPrinter<'w, 'a> {
                 if i != 0 {
                     write!(self.w, ", ")?;
                 }
-                let v = self.a.get(v);
+                let v = self.g.get(v);
                 if let Node::Const(ch) = *v {
                     write!(self.w, "'")?;
                     self.escape_char(ch)?;

@@ -4,14 +4,14 @@ use std::{
 };
 
 use crate::{
-    arena::{Arena, NodeId},
+    egraph::{Graph, NodeId},
     node::{BlockId, InputId, Node, Offset},
 };
 
 /// The memory and effects of a basic block.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Block {
-    /// The ID of this block, unique per arena.
+    /// The ID of this block, unique per e-graph.
     pub id: BlockId,
     /// The values modified in this memory.
     memory: VecDeque<Option<NodeId>>,
@@ -84,7 +84,7 @@ impl Block {
 
     /// Concatenates two basic blocks. Applies the operations of `other` to
     /// `self`.
-    pub fn concat(&mut self, other: &Self, a: &mut Arena) {
+    pub fn concat(&mut self, other: &Self, g: &mut Graph) {
         self.effects.reserve(other.effects.len());
         for effect in &other.effects {
             let effect = match effect {
@@ -92,7 +92,7 @@ impl Block {
                     let mut effects = mem::take(&mut self.effects);
                     let values = values
                         .iter()
-                        .map(|value| value.move_to_block(other.id, self, a));
+                        .map(|value| value.move_to_block(other.id, self, g));
                     if let Some(Effect::Output(values1)) = effects.last_mut() {
                         values1.extend(values);
                     } else {
@@ -120,7 +120,7 @@ impl Block {
         let mut other_memory = other.memory.clone();
         for cell in &mut other_memory {
             if let Some(cell) = cell {
-                *cell = cell.move_to_block(other.id, self, a);
+                *cell = cell.move_to_block(other.id, self, g);
             }
         }
         let min_offset = self.offset + other.min_offset;
@@ -158,18 +158,18 @@ impl Block {
 
     /// Clones this block, making its copies be relative to the given block and
     /// generating fresh inputs.
-    pub fn clone_fresh(&self, a: &mut Arena) -> Self {
-        let id = a.fresh_block_id();
+    pub fn clone_fresh(&self, g: &mut Graph) -> Self {
+        let id = g.fresh_block_id();
         let mut inputs = HashMap::new();
         let memory = self
             .memory
             .iter()
-            .map(|cell| cell.map(|cell| cell.clone_in_block(self.id, id, &mut inputs, a)))
+            .map(|cell| cell.map(|cell| cell.clone_in_block(self.id, id, &mut inputs, g)))
             .collect();
         let effects = self
             .effects
             .iter()
-            .map(|effect| effect.clone_in_block(self.id, id, &mut inputs, a))
+            .map(|effect| effect.clone_in_block(self.id, id, &mut inputs, g))
             .collect();
         Block {
             id,
@@ -193,17 +193,17 @@ impl Block {
     /// Iterates mutably over cells assigned in this block.
     pub fn iter_memory_mut(
         &mut self,
-        a: &mut Arena,
-        mut each: impl FnMut(Offset, NodeId, &mut Arena) -> Option<NodeId>,
+        g: &mut Graph,
+        mut each: impl FnMut(Offset, NodeId, &mut Graph) -> Option<NodeId>,
     ) {
         for (offset, slot) in (self.min_offset.0..)
             .map(Offset)
             .zip(self.memory.iter_mut())
         {
             if let Some(cell) = slot {
-                *slot = match each(offset, *cell, a) {
+                *slot = match each(offset, *cell, g) {
                     Some(new) => {
-                        if a[new] == Node::Copy(offset, self.id) {
+                        if g[new] == Node::Copy(offset, self.id) {
                             None
                         } else {
                             Some(new)
@@ -242,11 +242,11 @@ impl BlockBuilder {
     }
 
     /// Gets the value at the cell pointer, forcing construction of its nodes.
-    pub fn get(&mut self, a: &mut Arena) -> NodeId {
+    pub fn get(&mut self, g: &mut Graph) -> NodeId {
         let (&mut base, &mut addend) = self.get_parts();
-        let base = base.unwrap_or_else(|| Node::Copy(self.block.offset, self.block.id).insert(a));
+        let base = base.unwrap_or_else(|| Node::Copy(self.block.offset, self.block.id).insert(g));
         if addend != 0 {
-            Node::Add(base, Node::Const(addend).insert(a)).insert(a)
+            Node::Add(base, Node::Const(addend).insert(g)).insert(g)
         } else {
             base
         }
@@ -266,8 +266,8 @@ impl BlockBuilder {
     }
 
     /// Outputs the value at the cell pointer.
-    pub fn output(&mut self, a: &mut Arena) {
-        let value = self.get(a);
+    pub fn output(&mut self, g: &mut Graph) {
+        let value = self.get(g);
         if let Some(Effect::Output(values)) = self.block.effects.last_mut() {
             values.push(value);
         } else {
@@ -276,8 +276,8 @@ impl BlockBuilder {
     }
 
     /// Gets a byte from the user and sets the value at the cell pointer to it.
-    pub fn input(&mut self, a: &mut Arena) {
-        let input = a.fresh_input();
+    pub fn input(&mut self, g: &mut Graph) {
+        let input = g.fresh_input();
         self.set(input);
         self.block.effects.push(Effect::Input(input));
     }
@@ -311,17 +311,17 @@ impl BlockBuilder {
     }
 
     /// Returns the finished basic block.
-    pub fn finish(&mut self, a: &mut Arena) -> Block {
+    pub fn finish(&mut self, g: &mut Graph) -> Block {
         let next_block = Block::new(BlockId(0));
         let mut block = mem::replace(&mut self.block, next_block);
-        block.id = a.fresh_block_id();
+        block.id = g.fresh_block_id();
         for i in 0..block.memory.len() {
             let node = &mut block.memory[i];
             let addend = self.addends[i];
             if addend != 0 {
                 let base = node
-                    .unwrap_or_else(|| Node::Copy(block.min_offset + i as i64, block.id).insert(a));
-                *node = Some(Node::Add(base, Node::Const(addend).insert(a)).insert(a));
+                    .unwrap_or_else(|| Node::Copy(block.min_offset + i as i64, block.id).insert(g));
+                *node = Some(Node::Add(base, Node::Const(addend).insert(g)).insert(g));
             }
         }
         self.addends.clear();
@@ -343,24 +343,24 @@ impl BlockBuilder {
 impl NodeId {
     /// Makes a copy of this node, but with its copies be relative to the given
     /// block.
-    pub fn move_to_block(self, block_from: BlockId, block_to: &Block, a: &mut Arena) -> Self {
-        match a[self] {
+    pub fn move_to_block(self, block_from: BlockId, block_to: &Block, g: &mut Graph) -> Self {
+        match g[self] {
             Node::Copy(offset, block) if block == block_from => {
                 let offset = block_to.offset + offset;
                 block_to
                     .get_cell(offset)
-                    .unwrap_or_else(|| Node::Copy(offset, block_to.id).insert_ideal(a))
+                    .unwrap_or_else(|| Node::Copy(offset, block_to.id).insert_ideal(g))
             }
             Node::Copy(..) | Node::Const(_) | Node::Input(_) => self,
             Node::Add(lhs, rhs) => {
-                let lhs = lhs.move_to_block(block_from, block_to, a);
-                let rhs = rhs.move_to_block(block_from, block_to, a);
-                Node::Add(lhs, rhs).insert(a)
+                let lhs = lhs.move_to_block(block_from, block_to, g);
+                let rhs = rhs.move_to_block(block_from, block_to, g);
+                Node::Add(lhs, rhs).insert(g)
             }
             Node::Mul(lhs, rhs) => {
-                let lhs = lhs.move_to_block(block_from, block_to, a);
-                let rhs = rhs.move_to_block(block_from, block_to, a);
-                Node::Mul(lhs, rhs).insert(a)
+                let lhs = lhs.move_to_block(block_from, block_to, g);
+                let rhs = rhs.move_to_block(block_from, block_to, g);
+                Node::Mul(lhs, rhs).insert(g)
             }
         }
     }
@@ -372,31 +372,31 @@ impl NodeId {
         block_from: BlockId,
         block_to: BlockId,
         inputs: &mut HashMap<InputId, NodeId>,
-        a: &mut Arena,
+        g: &mut Graph,
     ) -> Self {
-        match a[self] {
+        match g[self] {
             Node::Copy(offset, block) if block == block_from => {
-                Node::Copy(offset, block_to).insert_ideal(a)
+                Node::Copy(offset, block_to).insert_ideal(g)
             }
             Node::Copy(..) | Node::Const(_) => self,
             Node::Input(input) => {
                 if let Some(&id) = inputs.get(&input) {
                     id
                 } else {
-                    let id = a.fresh_input();
+                    let id = g.fresh_input();
                     inputs.insert(input, id);
                     id
                 }
             }
             Node::Add(lhs, rhs) => {
-                let lhs = lhs.clone_in_block(block_from, block_to, inputs, a);
-                let rhs = rhs.clone_in_block(block_from, block_to, inputs, a);
-                Node::Add(lhs, rhs).insert_ideal(a)
+                let lhs = lhs.clone_in_block(block_from, block_to, inputs, g);
+                let rhs = rhs.clone_in_block(block_from, block_to, inputs, g);
+                Node::Add(lhs, rhs).insert_ideal(g)
             }
             Node::Mul(lhs, rhs) => {
-                let lhs = lhs.clone_in_block(block_from, block_to, inputs, a);
-                let rhs = rhs.clone_in_block(block_from, block_to, inputs, a);
-                Node::Mul(lhs, rhs).insert_ideal(a)
+                let lhs = lhs.clone_in_block(block_from, block_to, inputs, g);
+                let rhs = rhs.clone_in_block(block_from, block_to, inputs, g);
+                Node::Mul(lhs, rhs).insert_ideal(g)
             }
         }
     }
@@ -410,18 +410,18 @@ impl Effect {
         block_from: BlockId,
         block_to: BlockId,
         inputs: &mut HashMap<InputId, NodeId>,
-        a: &mut Arena,
+        g: &mut Graph,
     ) -> Self {
         match self {
             Effect::Output(values) => {
                 let values = values
                     .iter()
-                    .map(|value| value.clone_in_block(block_from, block_to, inputs, a))
+                    .map(|value| value.clone_in_block(block_from, block_to, inputs, g))
                     .collect();
                 Effect::Output(values)
             }
             Effect::Input(input) => {
-                Effect::Input(input.clone_in_block(block_from, block_to, inputs, a))
+                Effect::Input(input.clone_in_block(block_from, block_to, inputs, g))
             }
             &Effect::GuardShift(offset) => Effect::GuardShift(offset),
         }

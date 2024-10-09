@@ -6,12 +6,12 @@ use std::{
     hint::unreachable_unchecked,
     mem,
     num::NonZero,
-    ops::Index,
+    ops::{Deref, Index},
 };
 
 use hashbrown::{DefaultHashBuilder, HashTable};
 
-use crate::{arena::NodeId, node::Node};
+use crate::node::{BlockId, InputId, Node};
 
 // TODO:
 // - Compare performance of updating nodes in `Eclass::nodes` to point to the
@@ -28,10 +28,18 @@ use crate::{arena::NodeId, node::Node};
 /// Note that unlike egg and egglog, this does not use equality saturation and
 /// rewrites are written ad hoc.
 pub struct Graph {
-    nodes: Vec<NodeEntry>,      // NodeId -> NodeEntry
-    node_ids: HashTable<u32>,   // Node -> NodeId
+    /// Deduplicated nodes, identified by `NodeId`.
+    nodes: Vec<NodeEntry>, // NodeId -> NodeEntry
+    /// Map from node to node index for value numbering.
+    node_indices: HashTable<u32>, // Node -> NodeId index
+    /// E-classes, identified by `EclassId`.
     eclasses: Vec<EclassEntry>, // EclassId -> EclassEntry
+    /// Hasher for `node_ids`.
     hash_builder: DefaultHashBuilder,
+    /// The ID of the next basic block.
+    next_block: BlockId,
+    /// The ID of the next unique input.
+    next_input: InputId,
     /// The optimization pass which is currently executing.
     pass: Pass,
 }
@@ -43,6 +51,17 @@ pub struct NodeEntry {
     hash: u64,
     eclass: Option<EclassId>,
     creator: Pass,
+}
+
+/// The value-numbered ID of a node in an e-graph.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct NodeId(NonZero<u32>);
+
+/// A recursive reference to a node in an e-graph.
+#[derive(Clone, Copy)]
+pub struct NodeRef<'g> {
+    id: NodeId,
+    graph: &'g Graph,
 }
 
 /// An equivalence class of nodes, i.e., a set of nodes, which are equivalent
@@ -88,18 +107,22 @@ impl Graph {
     pub fn new() -> Self {
         Graph {
             nodes: Vec::new(),
-            node_ids: HashTable::new(),
+            node_indices: HashTable::new(),
             eclasses: Vec::new(),
             hash_builder: DefaultHashBuilder::default(),
+            next_block: BlockId(0),
+            next_input: InputId(0),
             pass: Pass::Unknown,
         }
     }
 
     /// Inserts this node into the e-graph and places it in a singleton e-class.
+    /// Structurally equivalent nodes are deduplicated and receive the same
+    /// `NodeId`.
     pub fn insert(&mut self, node: Node) -> NodeId {
         self.assert_node(&node);
         let hash = self.hash_builder.hash_one(&node);
-        let entry = self.node_ids.entry(
+        let entry = self.node_indices.entry(
             hash,
             |&index| {
                 // SAFETY: The length of `self.nodes` monotonically increases,
@@ -126,23 +149,45 @@ impl Graph {
             };
             id - 1
         });
-        NodeId::from_index(*index.get())
+        // SAFETY: Indexes are only constructed above and are guaranteed to be
+        // non-zero.
+        unsafe { NodeId::from_index(*index.get()) }
     }
 
     /// Looks up the ID of this node, if it has already been inserted.
     pub fn find(&self, node: &Node) -> Option<NodeId> {
         let hash = self.hash_builder.hash_one(node);
-        let index = self.node_ids.find(hash, |&index| {
+        let index = self.node_indices.find(hash, |&index| {
             // SAFETY: Same as `Graph::insert`.
             let entry = unsafe { self.nodes.get_unchecked(index as usize) };
             &entry.node == node
         });
-        index.map(|&index| NodeId::from_index(index))
+        // SAFETY: Same as `Graph::insert`.
+        index.map(|&index| unsafe { NodeId::from_index(index) })
+    }
+
+    /// Generates a fresh ID for the next basic block.
+    pub fn fresh_block_id(&mut self) -> BlockId {
+        let id = self.next_block;
+        self.next_block = BlockId(self.next_block.0 + 1);
+        id
+    }
+
+    /// Inserts a `Node::Input` with a fresh ID.
+    pub fn fresh_input(&mut self) -> NodeId {
+        let id = self.insert(Node::Input(self.next_input));
+        self.next_input = InputId(self.next_input.0 + 1);
+        id
+    }
+
+    /// Gets a recursive reference to a node in the e-graph.
+    pub fn get(&self, id: NodeId) -> NodeRef<'_> {
+        NodeRef { id, graph: self }
     }
 
     /// Gets the entry for a node.
     #[inline]
-    pub fn get(&self, id: NodeId) -> &NodeEntry {
+    pub fn entry(&self, id: NodeId) -> &NodeEntry {
         self.assert_node_id(id);
         &self.nodes[id.index()]
     }
@@ -174,6 +219,61 @@ impl Graph {
                 unreachable_unchecked()
             };
             (eid, eclass)
+        }
+    }
+
+    /// Unifies `origin` and `canon` into the same e-class and makes `canon` the
+    /// canonical node.
+    fn replace(&mut self, origin: NodeId, canon: NodeId) {
+        self.assert_node_id(origin);
+        self.assert_node_id(canon);
+        let eid1 = self.nodes[origin.index()].eclass;
+        let eid2 = self.nodes[canon.index()].eclass;
+        match (eid1, eid2) {
+            (Some(eid1), Some(eid2)) => {
+                let (eid1, eclass1) = Graph::eclass_mut(&mut self.eclasses, eid1);
+                let eclass1 = eclass1 as *mut Eclass;
+                let (eid2, eclass2) = Graph::eclass_mut(&mut self.eclasses, eid2);
+                let eclass2 = eclass2 as *mut Eclass;
+                self.nodes[origin.index()].eclass = Some(eid2);
+                // Update to the eclass root, so future accesses seek less.
+                self.nodes[canon.index()].eclass = Some(eid2);
+                if eid1 == eid2 {
+                    return;
+                }
+                // SAFETY: The indices do not alias, so the values do not alias.
+                let (eclass1, eclass2) = unsafe { (&mut *eclass1, &mut *eclass2) };
+                eclass2.canon = canon;
+                if eclass2.nodes.len() >= eclass1.nodes.len() {
+                    eclass2.nodes.extend_from_slice(&eclass1.nodes);
+                } else {
+                    let mut nodes = mem::take(&mut eclass1.nodes);
+                    nodes.extend_from_slice(&eclass2.nodes);
+                    eclass2.nodes = nodes;
+                }
+                self.eclasses[eid1.index()] = EclassEntry::Union(eid2);
+            }
+            (Some(eid), None) | (None, Some(eid)) => {
+                let (eid, eclass) = Graph::eclass_mut(&mut self.eclasses, eid);
+                self.nodes[origin.index()].eclass = Some(eid);
+                self.nodes[canon.index()].eclass = Some(eid);
+                eclass.canon = canon;
+                eclass
+                    .nodes
+                    .push(if eid1.is_none() { origin } else { canon });
+            }
+            (None, None) => {
+                self.eclasses.push(EclassEntry::Eclass(Eclass {
+                    canon,
+                    nodes: vec![canon, origin],
+                }));
+                let Ok(eid) = u32::try_from(self.eclasses.len()) else {
+                    Graph::eclass_overflow()
+                };
+                let eid = EclassId(NonZero::new(eid).unwrap());
+                self.nodes[origin.index()].eclass = Some(eid);
+                self.nodes[canon.index()].eclass = Some(eid);
+            }
         }
     }
 
@@ -275,69 +375,6 @@ impl Default for Graph {
     }
 }
 
-impl NodeId {
-    /// Unifies `self` and `canon` into the same e-class and makes `canon` the
-    /// canonical node.
-    pub fn replace(self, canon: NodeId, g: &mut Graph) {
-        g.assert_node_id(self);
-        g.assert_node_id(canon);
-        let eid1 = g.nodes[self.index()].eclass;
-        let eid2 = g.nodes[canon.index()].eclass;
-        match (eid1, eid2) {
-            (Some(eid1), Some(eid2)) => {
-                let (eid1, eclass1) = Graph::eclass_mut(&mut g.eclasses, eid1);
-                let eclass1 = eclass1 as *mut Eclass;
-                let (eid2, eclass2) = Graph::eclass_mut(&mut g.eclasses, eid2);
-                let eclass2 = eclass2 as *mut Eclass;
-                g.nodes[self.index()].eclass = Some(eid2);
-                // Update to the eclass root, so future accesses seek less.
-                g.nodes[canon.index()].eclass = Some(eid2);
-                if eid1 == eid2 {
-                    return;
-                }
-                // SAFETY: The indices do not alias, so the values do not alias.
-                let (eclass1, eclass2) = unsafe { (&mut *eclass1, &mut *eclass2) };
-                eclass2.canon = canon;
-                if eclass2.nodes.len() >= eclass1.nodes.len() {
-                    eclass2.nodes.extend_from_slice(&eclass1.nodes);
-                } else {
-                    let mut nodes = mem::take(&mut eclass1.nodes);
-                    nodes.extend_from_slice(&eclass2.nodes);
-                    eclass2.nodes = nodes;
-                }
-                g.eclasses[eid1.index()] = EclassEntry::Union(eid2);
-            }
-            (Some(eid), None) | (None, Some(eid)) => {
-                let (eid, eclass) = Graph::eclass_mut(&mut g.eclasses, eid);
-                g.nodes[self.index()].eclass = Some(eid);
-                g.nodes[canon.index()].eclass = Some(eid);
-                eclass.canon = canon;
-                eclass.nodes.push(if eid1.is_none() { self } else { canon });
-            }
-            (None, None) => {
-                g.eclasses.push(EclassEntry::Eclass(Eclass {
-                    canon,
-                    nodes: vec![canon, self],
-                }));
-                let Ok(eid) = u32::try_from(g.eclasses.len()) else {
-                    Graph::eclass_overflow()
-                };
-                let eid = EclassId(NonZero::new(eid).unwrap());
-                g.nodes[self.index()].eclass = Some(eid);
-                g.nodes[canon.index()].eclass = Some(eid);
-            }
-        }
-    }
-}
-
-impl EclassId {
-    /// Returns the 0-based index of this ID.
-    #[inline]
-    fn index(self) -> usize {
-        self.0.get() as usize - 1
-    }
-}
-
 impl NodeEntry {
     /// Gets a reference to this node.
     #[inline]
@@ -358,6 +395,62 @@ impl NodeEntry {
     }
 }
 
+impl NodeId {
+    /// Constructs a node ID from an index.
+    ///
+    /// # Safety
+    ///
+    /// The caller must guarantee that `index` is non-zero.
+    #[inline]
+    unsafe fn from_index(index: u32) -> Self {
+        NodeId(unsafe { NonZero::new_unchecked(index + 1) })
+    }
+
+    /// Returns the 0-based index of this ID.
+    pub fn index(&self) -> usize {
+        (self.0.get() - 1) as usize
+    }
+
+    /// Unifies `self` and `canon` into the same e-class and makes `canon` the
+    /// canonical node.
+    pub fn replace(self, canon: NodeId, g: &mut Graph) {
+        g.replace(self, canon);
+    }
+}
+
+impl<'g> NodeRef<'g> {
+    /// Gets the ID of this node.
+    pub fn id(&self) -> NodeId {
+        self.id
+    }
+
+    /// Gets a reference to this node.
+    pub fn node(&self) -> &'g Node {
+        &self.graph[self.id]
+    }
+
+    /// Gets a reference to the e-graph which contains this node.
+    pub fn graph(&self) -> &'g Graph {
+        self.graph
+    }
+
+    /// Gets a recursive reference to a node in the e-graph.
+    pub fn get(&self, id: NodeId) -> NodeRef<'g> {
+        NodeRef {
+            id,
+            graph: self.graph,
+        }
+    }
+}
+
+impl Deref for NodeRef<'_> {
+    type Target = Node;
+
+    fn deref(&self) -> &Self::Target {
+        self.node()
+    }
+}
+
 impl Eclass {
     /// The canonical node which represents this e-class.
     #[inline]
@@ -369,6 +462,14 @@ impl Eclass {
     #[inline]
     pub fn nodes(&self) -> &[NodeId] {
         &self.nodes
+    }
+}
+
+impl EclassId {
+    /// Returns the 0-based index of this ID.
+    #[inline]
+    fn index(self) -> usize {
+        self.0.get() as usize - 1
     }
 }
 
@@ -394,6 +495,12 @@ impl Debug for NodeEntry {
             .field("eclass", &self.eclass)
             .field("creator", &self.creator)
             .finish()
+    }
+}
+
+impl Debug for NodeId {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("NodeId").field(&self.index()).finish()
     }
 }
 

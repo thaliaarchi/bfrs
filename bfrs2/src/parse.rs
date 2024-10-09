@@ -5,9 +5,9 @@ use std::{
 };
 
 use crate::{
-    arena::Arena,
     block::BlockBuilder,
     cfg::{Cfg, Seq},
+    egraph::Graph,
 };
 
 /// An error from parsing a Brainfuck program.
@@ -19,22 +19,22 @@ pub enum ParseError {
     UnopenedLoop,
 }
 
-impl Arena {
+impl Graph {
     /// Parses a Brainfuck program to a CFG.
     pub fn parse(&mut self, src: &[u8]) -> Result<Cfg, ParseError> {
         Parser::new(src, self).parse(true)
     }
 }
 
-struct Parser<'s, 'a> {
+struct Parser<'s, 'g> {
     src: Iter<'s, u8>,
-    a: &'a mut Arena,
+    g: &'g mut Graph,
 }
 
-impl<'s, 'a> Parser<'s, 'a> {
+impl<'s, 'g> Parser<'s, 'g> {
     /// Constructs a new parser.
-    fn new(src: &'s [u8], a: &'a mut Arena) -> Self {
-        Parser { src: src.iter(), a }
+    fn new(src: &'s [u8], g: &'g mut Graph) -> Self {
+        Parser { src: src.iter(), g }
     }
 
     /// Parses the root or a loop.
@@ -48,11 +48,11 @@ impl<'s, 'a> Parser<'s, 'a> {
                 b'<' => block.shift(-1),
                 b'+' => block.add(1),
                 b'-' => block.add(255),
-                b'.' => block.output(self.a),
-                b',' => block.input(self.a),
+                b'.' => block.output(self.g),
+                b',' => block.input(self.g),
                 b'[' => {
                     if !block.is_empty() {
-                        seq.push(Cfg::Block(block.finish(self.a)));
+                        seq.push(Cfg::Block(block.finish(self.g)));
                     }
                     seq.push(Cfg::Loop(Box::new(self.parse(false)?)));
                 }
@@ -71,9 +71,9 @@ impl<'s, 'a> Parser<'s, 'a> {
         }
         if !block.is_empty() {
             if seq.is_empty() {
-                return Ok(Cfg::Block(block.finish(self.a)));
+                return Ok(Cfg::Block(block.finish(self.g)));
             }
-            seq.push(Cfg::Block(block.finish(self.a)));
+            seq.push(Cfg::Block(block.finish(self.g)));
         }
         Ok(Seq::from_unflattened(seq).into_cfg())
     }
