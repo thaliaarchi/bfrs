@@ -40,7 +40,7 @@ impl<'s, 'g> Parser<'s, 'g> {
     /// Parses the root or a loop.
     fn parse(&mut self, root: bool) -> Result<Cfg, ParseError> {
         let mut seq = Vec::new();
-        let mut block = BlockBuilder::new();
+        let mut block = BlockBuilder::new(self.g);
         let mut loop_closed = root;
         while let Some(ch) = self.src.next() {
             match ch {

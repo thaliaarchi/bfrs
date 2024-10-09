@@ -222,9 +222,9 @@ impl Block {
 impl BlockBuilder {
     /// Constructs a new builder for basic blocks with successive IDs starting
     /// from 0.
-    pub fn new() -> Self {
+    pub fn new(g: &mut Graph) -> Self {
         BlockBuilder {
-            block: Block::new(BlockId(0)),
+            block: Block::new(g.fresh_block_id()),
             addends: VecDeque::new(),
         }
     }
@@ -315,9 +315,8 @@ impl BlockBuilder {
 
     /// Returns the finished basic block.
     pub fn finish(&mut self, g: &mut Graph) -> Block {
-        let next_block = Block::new(BlockId(0));
+        let next_block = Block::new(g.fresh_block_id());
         let mut block = mem::replace(&mut self.block, next_block);
-        block.id = g.fresh_block_id();
         for i in 0..block.memory.len() {
             let node = &mut block.memory[i];
             let addend = self.addends[i];
