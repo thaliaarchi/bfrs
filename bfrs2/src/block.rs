@@ -203,6 +203,9 @@ impl Block {
             if let Some(cell) = slot {
                 *slot = match each(offset, *cell, g) {
                     Some(new) => {
+                        if new != *cell {
+                            cell.replace(new, g);
+                        }
                         if g[new] == Node::Copy(offset, self.id) {
                             None
                         } else {
