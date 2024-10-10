@@ -283,7 +283,7 @@ impl Graph {
         self.nodes.len()
     }
 
-    /// Returns whether this e-graph contains no values.
+    /// Returns whether this e-graph contains no nodes.
     #[inline]
     pub fn is_empty(&self) -> bool {
         self.nodes.is_empty()
