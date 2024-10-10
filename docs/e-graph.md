@@ -102,3 +102,9 @@ enum Node {
 
 struct EffectNode(NodeId); // Control or effect
 ```
+
+Performing updates mutably in-place or immutably by insertion could be toggled.
+When you want to modify a node, you could checkout a handle for the new node.
+When mutating, the node is removed from the hash table, modified, then replaced
+on drop; this is like `bfrs1::graph::hash_arena::ArenaRefMut<'a, T>`. When
+inserting, the node is cloned, modified, then inserted on drop.
