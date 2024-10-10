@@ -4,15 +4,16 @@ use std::{
     cell::{Cell, UnsafeCell},
     fmt::{self, Debug, Formatter},
     hash::{Hash, Hasher},
-    iter,
+    iter::{self, FusedIterator},
     marker::PhantomData,
     mem::MaybeUninit,
     num::NonZero,
-    ops::{Index, IndexMut},
+    ops::{Index, IndexMut, Range},
+    ptr,
 };
 
 // TODO:
-// - Drop, Debug, and Iterator
+// - Drop
 
 /// An arena of values, identified by ID.
 pub struct Arena<T> {
@@ -26,6 +27,18 @@ pub struct Id<T> {
     /// The 1-based ID of the node, i.e., the index plus 1.
     id: NonZero<u32>,
     marker: PhantomData<fn() -> T>,
+}
+
+/// An iterator over values in an arena.
+pub struct Iter<'a, T> {
+    arena: &'a Arena<T>,
+    index: Range<u32>,
+}
+
+/// An iterator over values and their IDs in an arena.
+pub struct IdIter<'a, T> {
+    arena: &'a Arena<T>,
+    index: Range<u32>,
 }
 
 impl<T> Arena<T> {
@@ -59,12 +72,8 @@ impl<T> Arena<T> {
             chunk
                 .add(len as usize % Self::CHUNK_SIZE)
                 .write(MaybeUninit::new(value));
-        }
-
-        Id {
             // SAFETY: Guaranteed non-zero by checked add.
-            id: unsafe { NonZero::new_unchecked(new_len) },
-            marker: PhantomData,
+            Id::from_id(new_len)
         }
     }
 
@@ -107,6 +116,24 @@ impl<T> Arena<T> {
         self.len() == 0
     }
 
+    /// Returns an iterator over values in this arena.
+    #[inline]
+    pub fn iter(&self) -> Iter<'_, T> {
+        Iter {
+            arena: self,
+            index: 0..self.len.get(),
+        }
+    }
+
+    /// Returns an iterator over values and their IDs in this arena.
+    #[inline]
+    pub fn iter_ids(&self) -> IdIter<'_, T> {
+        IdIter {
+            arena: self,
+            index: 0..self.len.get(),
+        }
+    }
+
     #[cold]
     #[inline(never)]
     fn grow(&self) {
@@ -132,6 +159,13 @@ impl<T> Arena<T> {
     }
 }
 
+impl<T: Debug> Debug for Arena<T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "Arena ")?;
+        f.debug_map().entries(self.iter().enumerate()).finish()
+    }
+}
+
 impl<T> Index<usize> for Arena<T> {
     type Output = T;
 
@@ -154,7 +188,40 @@ impl<T> IndexMut<usize> for Arena<T> {
     }
 }
 
+impl<'a, T> IntoIterator for &'a Arena<T> {
+    type Item = &'a T;
+    type IntoIter = Iter<'a, T>;
+
+    #[inline]
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
 impl<T> Id<T> {
+    /// Constructs an `Id` from its 1-based ID.
+    ///
+    /// # Safety
+    ///
+    /// The ID must not be 0 and be in bounds for the arena.
+    #[inline]
+    unsafe fn from_id(id: u32) -> Self {
+        Id {
+            id: unsafe { NonZero::new_unchecked(id) },
+            marker: PhantomData,
+        }
+    }
+
+    /// Constructs an `Id` from its 0-based index.
+    ///
+    /// # Safety
+    ///
+    /// The index must not be `u32::MAX` and be in bounds for the arena.
+    #[inline]
+    unsafe fn from_index(index: u32) -> Self {
+        Id::from_id(index + 1)
+    }
+
     /// Returns the 0-based index of this ID.
     #[inline]
     pub fn index(self) -> usize {
@@ -195,3 +262,98 @@ impl<T> Hash for Id<T> {
         self.id.hash(state);
     }
 }
+
+macro_rules! impl_iter(($Iter:ident<$a:lifetime, $T:ident> yields $Item:ty) => {
+    impl<$a, $T> Iterator for $Iter<$a, $T> {
+        type Item = $Item;
+
+        #[inline]
+        fn next(&mut self) -> Option<Self::Item> {
+            self.get(|index| index.next())
+        }
+
+        #[inline]
+        fn nth(&mut self, n: usize) -> Option<Self::Item> {
+            self.get(|index| index.nth(n))
+        }
+
+        #[inline]
+        fn size_hint(&self) -> (usize, Option<usize>) {
+            self.index.size_hint()
+        }
+    }
+
+    impl<$T> DoubleEndedIterator for $Iter<'_, $T> {
+        #[inline]
+        fn next_back(&mut self) -> Option<Self::Item> {
+            self.get(|index| index.next_back())
+        }
+
+        #[inline]
+        fn nth_back(&mut self, n: usize) -> Option<Self::Item> {
+            self.get(|index| index.nth_back(n))
+        }
+    }
+
+    impl<$T> ExactSizeIterator for $Iter<'_, $T> {
+        #[inline]
+        fn len(&self) -> usize {
+            self.index.len()
+        }
+    }
+
+    impl<$T> FusedIterator for $Iter<'_, $T> {}
+
+    impl<$T> Clone for $Iter<'_, $T> {
+        #[inline]
+        fn clone(&self) -> Self {
+            $Iter {
+                arena: self.arena,
+                index: self.index.clone(),
+            }
+        }
+    }
+
+    impl<$T> Debug for $Iter<'_, $T> {
+        fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+            f.debug_tuple(stringify!($Iter)).field(&self.index).finish()
+        }
+    }
+
+    impl<$T> PartialEq for $Iter<'_, $T> {
+        #[inline]
+        fn eq(&self, other: &Self) -> bool {
+            ptr::eq(self.arena, other.arena) && self.index == other.index
+        }
+    }
+
+    impl<$T> Eq for $Iter<'_, $T> {}
+});
+
+impl<'a, T> Iter<'a, T> {
+    #[inline]
+    fn get(&mut self, get_index: impl FnOnce(&mut Range<u32>) -> Option<u32>) -> Option<&'a T> {
+        let index = get_index(&mut self.index)?;
+        unsafe { Some(self.arena.get_unchecked(index as usize)) }
+    }
+}
+
+impl_iter!(Iter<'a, T> yields &'a T);
+
+impl<'a, T> IdIter<'a, T> {
+    #[inline]
+    fn get(
+        &mut self,
+        get_index: impl FnOnce(&mut Range<u32>) -> Option<u32>,
+    ) -> Option<(Id<T>, &'a T)> {
+        let index = get_index(&mut self.index)?;
+        unsafe {
+            Some((
+                Id::from_index(index),
+                self.arena.get_unchecked(index as usize),
+            ))
+        }
+    }
+}
+
+impl_iter!(IdIter<'a, T> yields (Id<T>, &'a T));
