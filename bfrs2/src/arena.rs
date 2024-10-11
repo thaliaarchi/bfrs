@@ -14,9 +14,6 @@ use std::{
     ptr,
 };
 
-// TODO:
-// - Drop
-
 /// An arena of values, identified by ID.
 ///
 /// # Safety
@@ -197,6 +194,21 @@ impl<T> Arena<T> {
     #[inline(never)]
     fn size_overflow() -> ! {
         panic!("arena has too many values for u32 index");
+    }
+}
+
+impl<T> Drop for Arena<T> {
+    fn drop(&mut self) {
+        let chunks = unsafe { &*self.chunks.get() };
+        for (i, &chunk) in chunks.iter().enumerate() {
+            let filled_len = (self.len() - (i * Self::CHUNK_SIZE)).min(Self::CHUNK_SIZE);
+            unsafe {
+                let filled = ptr::slice_from_raw_parts_mut(chunk, filled_len);
+                ptr::drop_in_place(filled as *mut [MaybeUninit<T>] as *mut [T]);
+                let alloc = ptr::slice_from_raw_parts_mut(chunk, Self::CHUNK_SIZE);
+                drop(Box::from_raw(alloc));
+            }
+        }
     }
 }
 
