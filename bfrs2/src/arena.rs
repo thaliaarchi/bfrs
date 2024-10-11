@@ -1,5 +1,7 @@
 //! An arena of values, identified by ID.
 
+#[cfg(debug_assertions)]
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::{
     cell::{Cell, UnsafeCell},
     fmt::{self, Debug, Formatter},
@@ -16,9 +18,16 @@ use std::{
 // - Drop
 
 /// An arena of values, identified by ID.
+///
+/// # Safety
+///
+/// It is undefined behavior to use an `Id` in any arena other than the one
+/// which created it.
 pub struct Arena<T> {
     chunks: UnsafeCell<Vec<*mut MaybeUninit<T>>>,
     len: Cell<u32>,
+    #[cfg(debug_assertions)]
+    arena_id: u32,
     marker: PhantomData<Vec<Vec<T>>>,
 }
 
@@ -26,6 +35,10 @@ pub struct Arena<T> {
 pub struct Id<T> {
     /// The 1-based ID of the node, i.e., the index plus 1.
     id: NonZero<u32>,
+    /// The ID of the arena which contains the node, used for ensuring an `Id`
+    /// is not used with a different arena when debug assertions are enabled.
+    #[cfg(debug_assertions)]
+    arena_id: u32,
     marker: PhantomData<fn() -> T>,
 }
 
@@ -50,6 +63,11 @@ impl<T> Arena<T> {
         Arena {
             chunks: UnsafeCell::new(Vec::new()),
             len: Cell::new(0),
+            #[cfg(debug_assertions)]
+            arena_id: {
+                static ARENA_ID: AtomicU32 = AtomicU32::new(0);
+                ARENA_ID.fetch_add(1, Ordering::Relaxed)
+            },
             marker: PhantomData::default(),
         }
     }
@@ -73,7 +91,7 @@ impl<T> Arena<T> {
                 .add(len as usize % Self::CHUNK_SIZE)
                 .write(MaybeUninit::new(value));
             // SAFETY: Guaranteed non-zero by checked add.
-            Id::from_id(new_len)
+            self.make_id(new_len)
         }
     }
 
@@ -134,6 +152,21 @@ impl<T> Arena<T> {
         }
     }
 
+    /// Constructs an `Id` for the 1-based ID.
+    ///
+    /// # Safety
+    ///
+    /// The ID must not be 0 and be in bounds for the arena.
+    #[inline]
+    unsafe fn make_id(&self, id: u32) -> Id<T> {
+        Id {
+            id: unsafe { NonZero::new_unchecked(id) },
+            #[cfg(debug_assertions)]
+            arena_id: self.arena_id,
+            marker: PhantomData,
+        }
+    }
+
     #[cold]
     #[inline(never)]
     fn grow(&self) {
@@ -146,10 +179,18 @@ impl<T> Arena<T> {
         chunks.push(Box::leak(chunk).as_mut_ptr());
     }
 
+    #[cfg(debug_assertions)]
     #[cold]
     #[inline(never)]
     fn out_of_bounds() -> ! {
         panic!("index out of bounds");
+    }
+
+    #[cfg(debug_assertions)]
+    #[cold]
+    #[inline(never)]
+    fn bad_arena_id() -> ! {
+        panic!("ID used in another arena");
     }
 
     #[cold]
@@ -166,25 +207,27 @@ impl<T: Debug> Debug for Arena<T> {
     }
 }
 
-impl<T> Index<usize> for Arena<T> {
+impl<T> Index<Id<T>> for Arena<T> {
     type Output = T;
 
     #[inline]
-    fn index(&self, index: usize) -> &Self::Output {
-        if index >= self.len() {
-            Self::out_of_bounds();
+    fn index(&self, id: Id<T>) -> &Self::Output {
+        #[cfg(debug_assertions)]
+        if id.arena_id != self.arena_id {
+            Self::bad_arena_id()
         }
-        unsafe { self.get_unchecked(index) }
+        unsafe { self.get_unchecked(id.index()) }
     }
 }
 
-impl<T> IndexMut<usize> for Arena<T> {
+impl<T> IndexMut<Id<T>> for Arena<T> {
     #[inline]
-    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
-        if index >= self.len() {
-            Self::out_of_bounds();
+    fn index_mut(&mut self, id: Id<T>) -> &mut Self::Output {
+        #[cfg(debug_assertions)]
+        if id.arena_id != self.arena_id {
+            Self::bad_arena_id()
         }
-        unsafe { self.get_unchecked_mut(index) }
+        unsafe { self.get_unchecked_mut(id.index()) }
     }
 }
 
@@ -199,29 +242,6 @@ impl<'a, T> IntoIterator for &'a Arena<T> {
 }
 
 impl<T> Id<T> {
-    /// Constructs an `Id` from its 1-based ID.
-    ///
-    /// # Safety
-    ///
-    /// The ID must not be 0 and be in bounds for the arena.
-    #[inline]
-    unsafe fn from_id(id: u32) -> Self {
-        Id {
-            id: unsafe { NonZero::new_unchecked(id) },
-            marker: PhantomData,
-        }
-    }
-
-    /// Constructs an `Id` from its 0-based index.
-    ///
-    /// # Safety
-    ///
-    /// The index must not be `u32::MAX` and be in bounds for the arena.
-    #[inline]
-    unsafe fn from_index(index: u32) -> Self {
-        Id::from_id(index + 1)
-    }
-
     /// Returns the 0-based index of this ID.
     #[inline]
     pub fn index(self) -> usize {
@@ -234,6 +254,8 @@ impl<T> Clone for Id<T> {
     fn clone(&self) -> Self {
         Id {
             id: self.id,
+            #[cfg(debug_assertions)]
+            arena_id: self.arena_id,
             marker: PhantomData,
         }
     }
@@ -349,7 +371,7 @@ impl<'a, T> IdIter<'a, T> {
         let index = get_index(&mut self.index)?;
         unsafe {
             Some((
-                Id::from_index(index),
+                self.arena.make_id(index + 1),
                 self.arena.get_unchecked(index as usize),
             ))
         }
