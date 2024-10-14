@@ -133,7 +133,7 @@ Those are exactly what's dumped, only with shift guards removed.
 To get this, I ended up rewriting everything from the ground up, since bfrs1 had
 accrued bits of cruft from changing designs. I had plans to make it a graph IR,
 mutably rewriting nodes, but that wasn't comfortable with a Rusty arena
-approach, so I ditched that and committed to a tree design, to see how far it
+approach, so I ditched that and committed to a DAG design, to see how far it
 could get.
 
 I've got three passes and, unfortunately, their intersection interacts
