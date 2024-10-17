@@ -3,6 +3,7 @@ name = "bfrs2"
 version = "0.1.0"
 authors = ["Thalia Archibald <thalia@archibald.dev>"]
 edition = "2021"
+rust-version = "1.82" # For Box::new_uninit_slice
 description = "An optimizing Brainfuck compiler demonstrating the optimizations of bfrs1 with a more minimal codebase"
 license = "MPL-2.0"
 keywords = ["brainfuck", "compiler"]

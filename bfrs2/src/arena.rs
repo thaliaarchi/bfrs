@@ -6,7 +6,7 @@ use std::{
     cell::{Cell, UnsafeCell},
     fmt::{self, Debug, Formatter},
     hash::{Hash, Hasher},
-    iter::{self, FusedIterator},
+    iter::FusedIterator,
     marker::PhantomData,
     mem::MaybeUninit,
     num::NonZero,
@@ -168,12 +168,7 @@ impl<T> Arena<T> {
     #[inline(never)]
     fn grow(&self) {
         let chunks = unsafe { &mut *self.chunks.get() };
-        // TODO: Use `Box::new_uninit_slice(CHUNK_SIZE)`, once Rust 1.82 is
-        // stable.
-        let chunk = iter::repeat_with(|| MaybeUninit::<T>::uninit())
-            .take(Self::CHUNK_SIZE)
-            .collect::<Box<[_]>>();
-        chunks.push(Box::leak(chunk).as_mut_ptr());
+        chunks.push(Box::leak(Box::new_uninit_slice(Self::CHUNK_SIZE)).as_mut_ptr());
     }
 
     #[cfg(debug_assertions)]
