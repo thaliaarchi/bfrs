@@ -328,24 +328,28 @@ impl Graph {
 
     #[cold]
     #[inline(never)]
+    #[track_caller]
     fn node_overflow() -> ! {
         panic!("graph has too many nodes for u32 index");
     }
 
     #[cold]
     #[inline(never)]
+    #[track_caller]
     fn eclass_overflow() -> ! {
         panic!("graph has too many e-classes for u32 index");
     }
 
     #[cold]
     #[inline(never)]
+    #[track_caller]
     fn bad_node_id() -> ! {
         panic!("NodeId used in another Graph");
     }
 
     #[cold]
     #[inline(never)]
+    #[track_caller]
     fn bad_eclass_id() -> ! {
         panic!("EclassId used in another Graph");
     }

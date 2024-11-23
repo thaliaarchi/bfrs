@@ -193,14 +193,15 @@ impl<T> StableVec<T> {
         }
     }
 
-    #[inline(never)]
     #[cold]
+    #[inline(never)]
     fn grow(&mut self) {
         self.data.push(Vec::with_capacity(Self::CHUNK_SIZE));
     }
 
-    #[inline(never)]
     #[cold]
+    #[inline(never)]
+    #[track_caller]
     fn size_overflow() -> ! {
         panic!("arena size too large for index");
     }

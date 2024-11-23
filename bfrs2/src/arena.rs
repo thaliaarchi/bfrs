@@ -181,12 +181,14 @@ impl<T> Arena<T> {
     #[cfg(debug_assertions)]
     #[cold]
     #[inline(never)]
+    #[track_caller]
     fn bad_arena_id() -> ! {
         panic!("ID used in another arena");
     }
 
     #[cold]
     #[inline(never)]
+    #[track_caller]
     fn size_overflow() -> ! {
         panic!("arena has too many values for u32 index");
     }
